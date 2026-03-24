@@ -512,7 +512,11 @@ RULES:
 5. Use runtime: text for planning/reviewing, claude_code for code execution
 6. Add gates (type: llm or human) where quality checks make sense
 7. Add MCP servers where agents need external tools
-8. Use params for configurable values
+8. Use params ONLY for static project configuration (model name, project path, language, etc.) that stays the same across runs.
+   NEVER make params required without a default value — all params MUST have sensible defaults.
+   The task-specific input (what to build, what to fix) comes from the user's `aqm run "description"` command via {{{{ input }}}}, NOT from params.
+   WRONG:  params: {{ feature_description: {{ type: string, required: true }} }}
+   CORRECT: Use {{{{ input }}}} in system_prompt to receive the user's task description
 9. The "payload" field in handoffs MUST be a plain string (Jinja2 template), NEVER a dict/object.
    CORRECT:   payload: "Feature plan: {{{{ output }}}}\nFeature name: {{{{ params.feature_name }}}}"
    WRONG:     payload:
@@ -554,7 +558,44 @@ IMPORTANT: Your entire response must be parseable as YAML. Do not write anything
     # Validate and auto-fix loop
     generated = _validate_and_fix(generated, max_retries=2, on_status=on_status)
 
+    # Post-process: ensure no required params without defaults
+    generated = _fix_required_params(generated)
+
     return generated
+
+
+def _fix_required_params(yaml_text: str) -> str:
+    """Remove required params without defaults from generated YAML.
+
+    AI-generated YAML sometimes includes params like:
+        feature_description:
+            type: string
+            required: true
+    These should not be params — they are task inputs ({{ input }}).
+    This function either adds a default or removes `required: true`.
+    """
+    data = yaml.safe_load(yaml_text)
+    if not isinstance(data, dict) or "params" not in data:
+        return yaml_text
+
+    params = data.get("params", {})
+    if not isinstance(params, dict):
+        return yaml_text
+
+    modified = False
+    for name, val in list(params.items()):
+        if isinstance(val, dict) and val.get("required") and val.get("default") is None:
+            # Remove required flag and add a placeholder default
+            val.pop("required", None)
+            val["default"] = ""
+            val.setdefault("description", f"Set via --param {name}=<value>")
+            modified = True
+
+    if modified:
+        data["params"] = params
+        return yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    return yaml_text
 
 
 def _strip_markdown_fences(text: str) -> str:
