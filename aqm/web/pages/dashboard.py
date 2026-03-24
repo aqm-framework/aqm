@@ -10,6 +10,8 @@ from aqm.web.templates import badge, esc, fmt_time, layout
 def render_dashboard(
     tasks: list[Task],
     agents: dict[str, AgentDefinition],
+    pipelines: list[str] | None = None,
+    current_pipeline: str = "default",
 ) -> str:
     total = len(tasks)
     completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
@@ -17,7 +19,23 @@ def render_dashboard(
     awaiting = sum(1 for t in tasks if t.status == TaskStatus.awaiting_gate)
     running = sum(1 for t in tasks if t.status == TaskStatus.in_progress)
 
+    # Pipeline selector
+    pipeline_selector = ""
+    if pipelines and len(pipelines) > 1:
+        pipe_options = "".join(
+            f'<option value="{esc(p)}"{"selected" if p == current_pipeline else ""}>{esc(p)}</option>'
+            for p in pipelines
+        )
+        pipeline_selector = f"""\
+<div class="card" style="margin-bottom:16px;padding:12px 16px;display:flex;align-items:center;gap:12px;">
+  <label style="font-weight:600;white-space:nowrap;">Pipeline:</label>
+  <select id="pipelineSelector" onchange="location.href='/?pipeline='+this.value"
+          style="flex:1;max-width:300px;">{pipe_options}</select>
+  <span style="font-size:12px;opacity:.6;">{len(pipelines)} pipeline(s)</span>
+</div>"""
+
     stats = f"""\
+{pipeline_selector}
 <div class="stats">
   <div class="stat-card"><div class="value">{total}</div><div class="label">Total</div></div>
   <div class="stat-card blue"><div class="value">{running}</div><div class="label">Running</div></div>
@@ -67,8 +85,10 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
   if (!desc) return;
   const agent = document.getElementById('runAgent').value;
   const priority = document.getElementById('runPriority').value;
+  const pipelineSel = document.getElementById('pipelineSelector');
   const body = {{description: desc, priority: priority}};
   if (agent) body.agent_id = agent;
+  if (pipelineSel) body.pipeline = pipelineSel.value;
   const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true; btn.textContent = 'Starting...';
   try {{

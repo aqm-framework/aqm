@@ -29,13 +29,19 @@ from rich.table import Table
 from aqm.core.agent import load_agents
 from aqm.core.project import (
     deep_analyze_project,
+    delete_pipeline,
     find_project_root,
     generate_agents_yaml,
     generate_clarifying_questions,
     get_agents_yaml_path,
     get_db_path,
+    get_default_pipeline,
+    get_pipeline_path,
     get_tasks_dir,
     init_project,
+    list_pipelines,
+    save_pipeline,
+    set_default_pipeline,
 )
 from aqm.core.task import Task, TaskStatus
 
@@ -489,7 +495,12 @@ def _init_from_ai(target: Path | None) -> None:
     is_flag=True,
     help="Run in parallel with other tasks (default: sequential)",
 )
-def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: str, parallel: bool) -> None:
+@click.option(
+    "--pipeline", "pipeline_name",
+    default=None,
+    help="Pipeline name to use (default: default pipeline)",
+)
+def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: str, parallel: bool, pipeline_name: str | None) -> None:
     """Run pipeline. Example: aqm run 'Build a login feature'"""
     root = _require_project()
 
@@ -509,7 +520,7 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
     try:
         import yaml as _yaml
 
-        agents_yaml_path = get_agents_yaml_path(root)
+        agents_yaml_path = get_agents_yaml_path(root, pipeline_name)
         with open(agents_yaml_path, encoding="utf-8") as f:
             raw_yaml = _yaml.safe_load(f)
 
@@ -534,7 +545,7 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
         pass  # Fall through to normal loading which will report errors
 
     try:
-        agents = load_agents(get_agents_yaml_path(root), cli_params=cli_params or None)
+        agents = load_agents(get_agents_yaml_path(root, pipeline_name), cli_params=cli_params or None)
     except (ValueError, FileNotFoundError) as e:
         console.print(f"[red]Error:[/] {e}")
         sys.exit(1)
@@ -850,10 +861,11 @@ def priority(task_id: str, level: str) -> None:
 
 
 @cli.command()
-def agents() -> None:
+@click.option("--pipeline", "pipeline_name", default=None, help="Pipeline name")
+def agents(pipeline_name: str | None) -> None:
     """List agents and print handoff graph."""
     root = _require_project()
-    agent_defs = load_agents(get_agents_yaml_path(root))
+    agent_defs = load_agents(get_agents_yaml_path(root, pipeline_name))
 
     console.print("[bold]Agent Pipeline[/]\n")
 
@@ -1512,6 +1524,217 @@ def search(query: str | None, repo: str | None, offline: bool) -> None:
     console.print(
         f"\n  Pull a pipeline: [bold]aqm pull <pipeline-name>[/]"
     )
+
+
+# ── pipeline management ────────────────────────────────────────────────
+
+
+@cli.group(name="pipeline")
+def pipeline_group() -> None:
+    """Manage multiple pipelines in the project."""
+    pass
+
+
+@pipeline_group.command(name="list")
+def pipeline_list_cmd() -> None:
+    """List all pipelines in the project."""
+    root = _require_project()
+    pipelines = list_pipelines(root)
+    default = get_default_pipeline(root) or "default"
+
+    if not pipelines:
+        console.print("[dim]No pipelines found. Run [bold]aqm init[/] to create one.[/]")
+        return
+
+    console.print("[bold]Pipelines[/]\n")
+    for name in pipelines:
+        is_default = " [green]★ default[/]" if name == default else ""
+        try:
+            path = get_pipeline_path(root, name)
+            import yaml as _yaml
+            with open(path, encoding="utf-8") as f:
+                data = _yaml.safe_load(f)
+            agent_count = len(data.get("agents", []))
+            console.print(f"  [bold]{name}[/] ({agent_count} agents){is_default}")
+        except Exception:
+            console.print(f"  [bold]{name}[/]{is_default}")
+
+    console.print(
+        f"\n  Use [bold]aqm run --pipeline <name> \"task\"[/] to run a specific pipeline."
+    )
+
+
+@pipeline_group.command(name="create")
+@click.argument("name")
+@click.option("--ai", is_flag=True, help="AI-generate the pipeline")
+@click.option("--template", is_flag=True, help="Use default template")
+def pipeline_create_cmd(name: str, ai: bool, template: bool) -> None:
+    """Create a new pipeline.  Example: aqm pipeline create code-review"""
+    root = _require_project()
+    pipelines = list_pipelines(root)
+
+    if name in pipelines:
+        console.print(f"[red]Error:[/] Pipeline '{name}' already exists.")
+        sys.exit(1)
+
+    if ai:
+        # Use AI generation flow
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+        _init_from_ai_for_pipeline(root, name)
+        return
+
+    if template:
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+        save_pipeline(root, name, DEFAULT_AGENTS_YAML)
+        console.print(f"[green]✓[/] Pipeline '{name}' created with default template.")
+        return
+
+    # Interactive choice
+    console.print(f"\n[bold]Creating pipeline: {name}[/]\n")
+    console.print("  [green][1][/] Default template")
+    console.print("  [magenta][2][/] AI-generate from description")
+
+    choice = click.prompt("\n  Choice", type=click.IntRange(1, 2), default=1)
+
+    if choice == 1:
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+        save_pipeline(root, name, DEFAULT_AGENTS_YAML)
+        console.print(f"\n[green]✓[/] Pipeline '{name}' created with default template.")
+    elif choice == 2:
+        _init_from_ai_for_pipeline(root, name)
+
+
+def _init_from_ai_for_pipeline(root: Path, name: str) -> None:
+    """AI-generate a pipeline and save it with the given name."""
+    console.print(
+        "\n[bold]Describe the pipeline you want to create.[/]\n"
+    )
+    description = click.prompt("  Pipeline description", type=str)
+    description = " ".join(description.splitlines()).strip()
+
+    project_dir = root
+
+    # Analyze project
+    analysis = ""
+    has_project = any(
+        p for p in project_dir.iterdir()
+        if p.name not in {".git", ".aqm", "__pycache__", "node_modules", ".venv"}
+    ) if project_dir.exists() else False
+
+    if has_project:
+        from aqm.core.project import analyze_project
+        with console.status("[bold cyan]Analyzing project...[/]", spinner="dots"):
+            analysis = analyze_project(project_dir)
+        if analysis:
+            console.print(f"\n[bold]Project analysis:[/]\n")
+            console.print(f"[dim]{analysis}[/]\n")
+
+    # Clarifying questions
+    project_analysis_text = analysis if has_project else ""
+    with console.status("[bold cyan]Preparing questions...[/]", spinner="dots"):
+        questions = generate_clarifying_questions(description, project_analysis_text)
+
+    qa_context = ""
+    if questions:
+        console.print(
+            f"\n[bold]A few questions to build a better pipeline[/] "
+            f"[dim](press Enter to use default)[/]\n"
+        )
+        qa_pairs: list[str] = []
+        for i, q in enumerate(questions, 1):
+            question_text = q.get("question", "")
+            why_text = q.get("why", "")
+            default_text = q.get("default", "")
+            if why_text:
+                console.print(f"  [dim]{why_text}[/]")
+            answer = click.prompt(
+                f"  [bold]Q{i}.[/] {question_text}",
+                default=default_text or "",
+                show_default=bool(default_text),
+            )
+            if answer:
+                qa_pairs.append(f"Q: {question_text}\nA: {answer}")
+            console.print()
+        qa_context = "\n\n".join(qa_pairs)
+
+    # Deep analysis
+    deep_analysis_text = ""
+    if has_project and qa_context:
+        with console.status("[bold cyan]Investigating project based on your answers...[/]", spinner="dots"):
+            deep_analysis_text = deep_analyze_project(
+                project_dir, qa_context, initial_analysis=analysis,
+            )
+        if deep_analysis_text:
+            console.print(f"\n[bold]Additional findings:[/]\n")
+            console.print(f"[dim]{deep_analysis_text}[/]\n")
+
+    # Generate YAML
+    try:
+        with console.status("[bold cyan]Generating pipeline...[/]", spinner="dots") as status:
+            def _update_status(msg: str) -> None:
+                status.update(f"[bold cyan]{msg}[/]")
+            generated = generate_agents_yaml(
+                description,
+                project_dir=project_dir if has_project else None,
+                qa_context=qa_context,
+                deep_analysis=deep_analysis_text,
+                on_status=_update_status,
+            )
+    except Exception as e:
+        console.print(f"[red]Generation failed:[/] {e}")
+        return
+
+    from rich.syntax import Syntax
+    console.print("\n[bold]Generated pipeline:[/]\n")
+    console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
+
+    if click.confirm("\n  Use this pipeline?", default=True):
+        save_pipeline(root, name, generated)
+        console.print(
+            f"\n[green]✓[/] Pipeline '{name}' created.\n"
+            f"  Run [bold]aqm run --pipeline {name} \"your task\"[/] to use it."
+        )
+
+
+@pipeline_group.command(name="delete")
+@click.argument("name")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def pipeline_delete_cmd(name: str, yes: bool) -> None:
+    """Delete a pipeline.  Example: aqm pipeline delete old-pipeline"""
+    root = _require_project()
+
+    if not yes:
+        if not click.confirm(f"  Delete pipeline '{name}'?", default=False):
+            console.print("[dim]Cancelled.[/]")
+            return
+
+    try:
+        delete_pipeline(root, name)
+        console.print(f"[green]✓[/] Pipeline '{name}' deleted.")
+    except (FileNotFoundError, ValueError) as e:
+        console.print(f"[red]Error:[/] {e}")
+        sys.exit(1)
+
+
+@pipeline_group.command(name="default")
+@click.argument("name", required=False)
+def pipeline_default_cmd(name: str | None) -> None:
+    """Get or set the default pipeline.  Example: aqm pipeline default code-review"""
+    root = _require_project()
+
+    if name is None:
+        current = get_default_pipeline(root) or "default"
+        console.print(f"Default pipeline: [bold]{current}[/]")
+        return
+
+    pipelines = list_pipelines(root)
+    if name not in pipelines:
+        console.print(f"[red]Error:[/] Pipeline '{name}' not found.")
+        console.print(f"  Available: {', '.join(pipelines)}")
+        sys.exit(1)
+
+    set_default_pipeline(root, name)
+    console.print(f"[green]✓[/] Default pipeline set to '{name}'.")
 
 
 if __name__ == "__main__":

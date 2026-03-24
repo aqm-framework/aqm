@@ -37,6 +37,7 @@ class RunPipelineRequest(BaseModel):
     agent_id: Optional[str] = None
     params: Optional[dict[str, str]] = None
     priority: str = "normal"
+    pipeline: Optional[str] = None
 
 
 class FixRequest(BaseModel):
@@ -44,6 +45,7 @@ class FixRequest(BaseModel):
     description: str
     agent_id: Optional[str] = None
     params: Optional[dict[str, str]] = None
+    pipeline: Optional[str] = None
 
 
 class GateActionRequest(BaseModel):
@@ -66,22 +68,22 @@ class PriorityRequest(BaseModel):
 def create_tasks_router(project_root: Path) -> APIRouter:
     router = APIRouter()
     db_path = get_db_path(project_root)
-    agents_yaml_path = get_agents_yaml_path(project_root)
 
     def _get_queue() -> SQLiteQueue:
         return SQLiteQueue(db_path)
 
-    def _get_agents(cli_params=None) -> dict[str, AgentDefinition]:
-        if agents_yaml_path.exists():
-            return load_agents(agents_yaml_path, cli_params=cli_params)
+    def _get_agents(cli_params=None, pipeline: str | None = None) -> dict[str, AgentDefinition]:
+        path = get_agents_yaml_path(project_root, pipeline)
+        if path.exists():
+            return load_agents(path, cli_params=cli_params)
         return {}
 
-    def _run_pipeline_bg(task: Task, start_agent: str, input_text: str | None, cli_params=None):
+    def _run_pipeline_bg(task: Task, start_agent: str, input_text: str | None, cli_params=None, pipeline: str | None = None):
         """Run pipeline in a background thread with SSE broadcasting."""
         try:
-            agents = _get_agents(cli_params=cli_params)
+            agents = _get_agents(cli_params=cli_params, pipeline=pipeline)
             queue = _get_queue()
-            pipeline = Pipeline(agents, queue, project_root)
+            pipe = Pipeline(agents, queue, project_root)
 
             def on_stage_start(t, agent_id, stage_number):
                 broadcast_event(t.id, "stage_start", {
@@ -96,7 +98,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                     "gate_result": stage.gate_result,
                 })
 
-            result = pipeline.run_task(
+            result = pipe.run_task(
                 task, start_agent,
                 input_text=input_text,
                 on_stage_complete=on_stage_complete,
@@ -187,7 +189,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
 
     @router.post("/api/run")
     async def api_run_pipeline(req: RunPipelineRequest):
-        agents = _get_agents(cli_params=req.params)
+        agents = _get_agents(cli_params=req.params, pipeline=req.pipeline)
         if not agents:
             raise HTTPException(500, "No agents defined in agents.yaml")
 
@@ -201,7 +203,12 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         except KeyError:
             raise HTTPException(400, f"Invalid priority: {req.priority}")
 
-        task = Task(description=req.description, current_agent_id=start_agent, priority=task_priority)
+        task = Task(
+            description=req.description,
+            current_agent_id=start_agent,
+            priority=task_priority,
+            metadata={"pipeline": req.pipeline} if req.pipeline else {},
+        )
         queue = _get_queue()
         try:
             queue.push(task, queue_name=start_agent)
@@ -210,7 +217,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
 
         thread = threading.Thread(
             target=_run_pipeline_bg,
-            args=(task, start_agent, None, req.params),
+            args=(task, start_agent, None, req.params, req.pipeline),
             daemon=True,
         )
         thread.start()
@@ -409,7 +416,14 @@ def create_tasks_router(project_root: Path) -> APIRouter:
 def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason: str):
     """Resume pipeline after gate decision in background thread."""
     try:
-        agents_yaml_path = get_agents_yaml_path(project_root)
+        # Recover pipeline name from task metadata
+        db_path = get_db_path(project_root)
+        _q = SQLiteQueue(db_path)
+        _task = _q.get(task_id)
+        pipeline_name = _task.metadata.get("pipeline") if _task else None
+        _q.close()
+
+        agents_yaml_path = get_agents_yaml_path(project_root, pipeline_name)
         agents = load_agents(agents_yaml_path)
         db_path = get_db_path(project_root)
         queue = SQLiteQueue(db_path)
