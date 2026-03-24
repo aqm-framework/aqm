@@ -1,0 +1,446 @@
+"""CLI — Click-based command-line interface.
+
+agent-queue init       Initialize project
+agent-queue run        Run pipeline
+agent-queue status     Query task status
+agent-queue list       List tasks
+agent-queue approve    Approve human gate
+agent-queue reject     Reject human gate
+agent-queue agents     List agents
+agent-queue context    View task context
+agent-queue serve      Run web dashboard
+agent-queue pull       Pull pipeline from registry
+agent-queue publish    Publish pipeline to registry
+agent-queue search     Search registry
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
+
+import click
+from rich.console import Console
+from rich.table import Table
+
+from agent_queue.core.agent import load_agents
+from agent_queue.core.project import (
+    find_project_root,
+    get_agents_yaml_path,
+    get_db_path,
+    get_tasks_dir,
+    init_project,
+)
+from agent_queue.core.task import Task, TaskStatus
+
+console = Console()
+
+
+def _require_project() -> Path:
+    """Find the project root, or error if not found."""
+    root = find_project_root()
+    if root is None:
+        console.print(
+            "[red]Error:[/] Cannot find .agent-queue/ directory.\n"
+            "Please run 'agent-queue init' first.",
+        )
+        sys.exit(1)
+    return root
+
+
+def _get_queue(root: Path):
+    from agent_queue.queue.sqlite import SQLiteQueue
+
+    return SQLiteQueue(get_db_path(root))
+
+
+@click.group()
+@click.option("-v", "--verbose", is_flag=True, help="Enable debug logging")
+def cli(verbose: bool) -> None:
+    """agent-queue — AI agent orchestration framework"""
+    level = logging.DEBUG if verbose else logging.WARNING
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+# ── init ────────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option(
+    "--path",
+    type=click.Path(),
+    default=None,
+    help="Directory to initialize (default: current directory)",
+)
+def init(path: str | None) -> None:
+    """Initialize .agent-queue/ in the current project."""
+    target = Path(path) if path else None
+    root = init_project(target)
+    agents_yaml = get_agents_yaml_path(root)
+    console.print(f"[green]✓[/] .agent-queue/ initialization complete")
+    console.print(f"  Config file: {agents_yaml}")
+    console.print(
+        f"\n[dim]Edit agents.yaml to configure your pipeline.[/]"
+    )
+
+
+# ── run ─────────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("input_text")
+@click.option("--agent", default=None, help="Starting agent ID (default: first)")
+def run(input_text: str, agent: str | None) -> None:
+    """Run pipeline. Example: agent-queue run 'Build a login feature'"""
+    root = _require_project()
+    agents = load_agents(get_agents_yaml_path(root))
+    queue = _get_queue(root)
+
+    start_agent = agent or next(iter(agents))
+
+    from agent_queue.core.pipeline import Pipeline
+
+    pipeline = Pipeline(agents, queue, root)
+
+    task = Task(description=input_text)
+    queue.push(task, start_agent)
+
+    console.print(f"[green]✓[/] Task created: [bold]{task.id}[/]")
+    console.print(f"  Starting agent: {start_agent}\n")
+
+    def _on_stage(t: Task, stage) -> None:
+        status_color = {
+            "completed": "green",
+            "approved": "green",
+            "rejected": "red",
+            "failed": "red",
+        }.get(stage.gate_result or "completed", "blue")
+
+        console.print(
+            f"  [{status_color}]stage {stage.stage_number}[/] "
+            f"[bold]{stage.agent_id}[/] → "
+            f"{(stage.output_text[:80] + '...') if len(stage.output_text) > 80 else stage.output_text}"
+        )
+
+    result = pipeline.run_task(
+        task,
+        start_agent,
+        on_stage_complete=_on_stage,
+    )
+
+    console.print()
+    if result.status == TaskStatus.completed:
+        console.print(f"[green]✓ Completed[/] {result.id}")
+    elif result.status == TaskStatus.awaiting_gate:
+        console.print(
+            f"[yellow]⏸ Awaiting gate[/] {result.id}\n"
+            f"  Proceed with 'agent-queue approve {result.id}' or "
+            f"'agent-queue reject {result.id} -r \"reason\"'."
+        )
+    elif result.status == TaskStatus.failed:
+        console.print(f"[red]✗ Failed[/] {result.id}")
+    else:
+        console.print(f"[dim]Status: {result.status.value}[/] {result.id}")
+
+
+# ── task (alias for run, backward compat) ───────────────────────────────
+
+
+@cli.command(hidden=True)
+@click.argument("input_text")
+@click.option("--agent", default=None)
+@click.pass_context
+def task(ctx, input_text: str, agent: str | None) -> None:
+    """Create and run a task (alias for run)."""
+    ctx.invoke(run, input_text=input_text, agent=agent)
+
+
+# ── status ──────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id", required=False)
+def status(task_id: str | None) -> None:
+    """Query task status."""
+    root = _require_project()
+    queue = _get_queue(root)
+
+    if task_id:
+        t = queue.get(task_id)
+        if not t:
+            console.print(f"[red]Task '{task_id}' not found.[/]")
+            return
+
+        console.print(f"[bold]{t.id}[/]  {t.description}")
+        console.print(f"  Status: {t.status.value}")
+        console.print(f"  Current agent: {t.current_agent_id or '-'}")
+        console.print(f"  Created: {t.created_at.strftime('%Y-%m-%d %H:%M')}")
+        console.print(f"  Stages: {len(t.stages)}\n")
+
+        for s in t.stages:
+            gate_info = ""
+            if s.gate_result:
+                gate_info = f" [{s.gate_result}]"
+                if s.reject_reason:
+                    gate_info += f" ({s.reject_reason})"
+            console.print(
+                f"  stage {s.stage_number}: {s.agent_id}"
+                f"{gate_info}"
+            )
+    else:
+        tasks = queue.list_tasks()
+        if not tasks:
+            console.print("[dim]No tasks found.[/]")
+            return
+
+        table = Table(title="Task List")
+        table.add_column("ID", style="bold")
+        table.add_column("Status")
+        table.add_column("Agent")
+        table.add_column("Description")
+        table.add_column("Stages")
+
+        for t in tasks[:20]:
+            status_style = {
+                "completed": "green",
+                "failed": "red",
+                "awaiting_gate": "yellow",
+                "in_progress": "blue",
+            }.get(t.status.value, "dim")
+
+            table.add_row(
+                t.id,
+                f"[{status_style}]{t.status.value}[/]",
+                t.current_agent_id or "-",
+                (t.description[:40] + "...")
+                if len(t.description) > 40
+                else t.description,
+                str(len(t.stages)),
+            )
+        console.print(table)
+
+
+# ── list ────────────────────────────────────────────────────────────────
+
+
+@cli.command(name="list")
+@click.option(
+    "--filter",
+    "status_filter",
+    default=None,
+    help="Status filter (pending, completed, failed, awaiting_gate)",
+)
+def list_tasks(status_filter: str | None) -> None:
+    """List tasks (filter by status)."""
+    root = _require_project()
+    queue = _get_queue(root)
+
+    task_status = None
+    if status_filter:
+        try:
+            task_status = TaskStatus(status_filter)
+        except ValueError:
+            console.print(f"[red]Unknown status: {status_filter}[/]")
+            return
+
+    tasks = queue.list_tasks(status=task_status)
+    if not tasks:
+        console.print("[dim]No tasks found.[/]")
+        return
+
+    for t in tasks:
+        console.print(
+            f"  {t.id}  [{t.status.value:15}]  {t.description[:50]}"
+        )
+
+
+# ── approve / reject ────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id")
+@click.option("-r", "--reason", default="", help="Approval reason")
+def approve(task_id: str, reason: str) -> None:
+    """Approve human gate."""
+    root = _require_project()
+    agents = load_agents(get_agents_yaml_path(root))
+    queue = _get_queue(root)
+
+    from agent_queue.core.pipeline import Pipeline
+
+    pipeline = Pipeline(agents, queue, root)
+
+    try:
+        result = pipeline.resume_task(task_id, "approved", reason)
+        console.print(f"[green]✓ Approved[/] {task_id} → {result.status.value}")
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
+
+
+@cli.command()
+@click.argument("task_id")
+@click.option("-r", "--reason", required=True, help="Rejection reason")
+def reject(task_id: str, reason: str) -> None:
+    """Reject human gate."""
+    root = _require_project()
+    agents = load_agents(get_agents_yaml_path(root))
+    queue = _get_queue(root)
+
+    from agent_queue.core.pipeline import Pipeline
+
+    pipeline = Pipeline(agents, queue, root)
+
+    try:
+        result = pipeline.resume_task(task_id, "rejected", reason)
+        console.print(f"[yellow]✗ Rejected[/] {task_id} → {result.status.value}")
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
+
+
+# ── agents ──────────────────────────────────────────────────────────────
+
+
+@cli.command()
+def agents() -> None:
+    """List agents and print handoff graph."""
+    root = _require_project()
+    agent_defs = load_agents(get_agents_yaml_path(root))
+
+    console.print("[bold]Agent Pipeline[/]\n")
+
+    for agent in agent_defs.values():
+        mcp_info = ""
+        if agent.mcp:
+            servers = ", ".join(m.server for m in agent.mcp)
+            mcp_info = f" [dim](MCP: {servers})[/]"
+
+        console.print(
+            f"  [bold]{agent.id}[/] ({agent.name}) "
+            f"[{agent.runtime}]{mcp_info}"
+        )
+
+        if agent.gate:
+            console.print(
+                f"    gate: {agent.gate.type}"
+            )
+
+        for h in agent.handoffs:
+            console.print(
+                f"    → {h.to} [dim]({h.condition})[/]"
+            )
+
+        console.print()
+
+
+# ── context ─────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id")
+def context(task_id: str) -> None:
+    """Print the context.md content for a task."""
+    root = _require_project()
+    tasks_dir = get_tasks_dir(root)
+    context_path = tasks_dir / task_id / "context.md"
+
+    if not context_path.exists():
+        console.print(f"[red]Context file not found: {task_id}[/]")
+        return
+
+    console.print(context_path.read_text(encoding="utf-8"))
+
+
+# ── serve ───────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.option("--port", default=8000, help="Port number")
+@click.option("--host", default="127.0.0.1", help="Host")
+def serve(port: int, host: str) -> None:
+    """Run web dashboard."""
+    root = _require_project()
+
+    console.print(
+        f"[green]agent-queue dashboard[/] → http://{host}:{port}\n"
+        f"[dim]Press Ctrl+C to stop[/]"
+    )
+
+    try:
+        from agent_queue.web.app import create_app
+
+        app = create_app(root)
+
+        import uvicorn
+
+        uvicorn.run(app, host=host, port=port, log_level="info")
+    except ImportError:
+        console.print(
+            "[yellow]Additional packages are required to run the web dashboard:[/]\n"
+            "  pip install agent-queue[serve]"
+        )
+
+
+# ── pull / publish / search (registry) ──────────────────────────────────
+
+
+REGISTRY_URL = "https://registry.agent-queue.dev"
+
+
+@cli.command()
+@click.argument("pipeline_name")
+def pull(pipeline_name: str) -> None:
+    """Pull a pipeline from the registry."""
+    root = _require_project()
+
+    console.print(
+        f"[dim]Searching for '{pipeline_name}' in registry...[/]"
+    )
+
+    # TODO: Integrate with actual registry API
+    console.print(
+        f"[yellow]Registry feature will be available in v0.3.[/]\n"
+        f"  For now, please copy the agents.yaml file manually."
+    )
+
+
+@cli.command()
+@click.option("--name", default=None, help="Pipeline name")
+@click.option("--description", default=None, help="Pipeline description")
+def publish(name: str | None, description: str | None) -> None:
+    """Publish a pipeline to the registry."""
+    root = _require_project()
+    agents_yaml = get_agents_yaml_path(root)
+
+    if not agents_yaml.exists():
+        console.print("[red]Cannot find agents.yaml.[/]")
+        return
+
+    console.print(
+        f"[yellow]Registry feature will be available in v0.3.[/]\n"
+        f"  For now, please share the agents.yaml file directly.\n"
+        f"  File location: {agents_yaml}"
+    )
+
+
+@cli.command()
+@click.argument("query")
+def search(query: str) -> None:
+    """Search for pipelines in the registry."""
+    console.print(
+        f"[dim]Searching for '{query}'...[/]"
+    )
+
+    # TODO: Integrate with actual registry API
+    console.print(
+        f"[yellow]Registry feature will be available in v0.3.[/]\n"
+        f"  Community pipelines: https://github.com/topics/agent-queue-pipeline"
+    )
+
+
+if __name__ == "__main__":
+    cli()

@@ -1,0 +1,207 @@
+"""ClaudeCodeRuntime -- Run Claude Code CLI as a subprocess."""
+
+from __future__ import annotations
+
+import atexit
+import json
+import logging
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+from agent_queue.core.agent import AgentDefinition, MCPServerConfig
+from agent_queue.core.task import Task
+from agent_queue.runtime.base import AbstractRuntime
+
+logger = logging.getLogger(__name__)
+
+# Registry of temp files to clean up on interpreter exit (safety net).
+_TEMP_FILES_TO_CLEANUP: list[Path] = []
+
+
+def _cleanup_temp_files() -> None:
+    """Remove any leftover temp files at interpreter shutdown."""
+    for p in _TEMP_FILES_TO_CLEANUP:
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+atexit.register(_cleanup_temp_files)
+
+
+def _build_mcp_config(servers: list[MCPServerConfig]) -> dict:
+    """Convert a list of MCP server configs to the Claude Code --mcp-config JSON format.
+
+    The expected format for Claude Code CLI is::
+
+        {
+          "mcpServers": {
+            "server-name": {
+              "command": "npx",
+              "args": ["-y", "@modelcontextprotocol/server-xxx"],
+              "env": {}
+            }
+          }
+        }
+    """
+    config: dict = {"mcpServers": {}}
+    for server in servers:
+        entry: dict = {}
+        if server.command:
+            entry["command"] = server.command
+            entry["args"] = server.args
+        else:
+            # Default to npx-based invocation when only the server name is provided.
+            entry["command"] = "npx"
+            entry["args"] = [
+                "-y",
+                f"@modelcontextprotocol/server-{server.server}",
+            ] + server.args
+        # Always include the "env" key -- Claude Code CLI expects it to be present.
+        entry["env"] = server.env if server.env else {}
+        config["mcpServers"][server.server] = entry
+    return config
+
+
+def _write_temp_file(content: str, *, prefix: str, suffix: str) -> Path:
+    """Write *content* to a named temp file and register it for crash-safe cleanup.
+
+    The file is closed before returning so that subprocesses can read it on
+    all platforms (Windows locks open files).  The file is also registered in
+    ``_TEMP_FILES_TO_CLEANUP`` so that an ``atexit`` handler will remove it
+    even if the caller forgets or the process crashes before ``finally``.
+    """
+    fd, path_str = tempfile.mkstemp(prefix=prefix, suffix=suffix)
+    path = Path(path_str)
+    _TEMP_FILES_TO_CLEANUP.append(path)
+    try:
+        os.write(fd, content.encode("utf-8"))
+    finally:
+        os.close(fd)
+    return path
+
+
+def _redact_command(cmd: list[str]) -> list[str]:
+    """Return a copy of *cmd* with sensitive flag values replaced by ``<REDACTED>``.
+
+    Redacts the value following ``--system-prompt`` since it may contain
+    proprietary instructions.  Also redacts very long ``-p`` prompt values
+    to keep log lines manageable.
+    """
+    redacted: list[str] = []
+    sensitive_flags = {"--system-prompt"}
+    skip_next = False
+    for i, token in enumerate(cmd):
+        if skip_next:
+            redacted.append("<REDACTED>")
+            skip_next = False
+            continue
+        if token in sensitive_flags:
+            redacted.append(token)
+            skip_next = True
+            continue
+        redacted.append(token)
+    return redacted
+
+
+def _check_claude_cli_available() -> None:
+    """Verify that the ``claude`` CLI binary is on PATH.
+
+    Raises :class:`FileNotFoundError` with a helpful message when it is not.
+    """
+    if shutil.which("claude") is None:
+        raise FileNotFoundError(
+            "The 'claude' CLI was not found on PATH. "
+            "Please install Claude Code CLI first: "
+            "https://docs.anthropic.com/en/docs/claude-code"
+        )
+
+
+class ClaudeCodeRuntime(AbstractRuntime):
+    """Execute a task by invoking the Claude Code CLI as a subprocess."""
+
+    def __init__(self, project_root: Path | None = None) -> None:
+        self.project_root = project_root or Path.cwd()
+
+    @property
+    def name(self) -> str:
+        return "claude_code"
+
+    def run(self, prompt: str, agent: AgentDefinition, task: Task) -> str:
+        # --- Pre-flight check ---------------------------------------------------
+        _check_claude_cli_available()
+
+        # Build the command.  We use ``subprocess.run`` with a *list* (no
+        # shell=True) so that quotes, newlines, and other special characters in
+        # the prompt / system-prompt are passed verbatim to the CLI without any
+        # shell interpretation.
+        cmd: list[str] = ["claude", "--print", "-p", prompt]
+
+        # --- System prompt -------------------------------------------------------
+        if agent.system_prompt:
+            cmd.extend(["--system-prompt", agent.system_prompt])
+
+        if agent.model:
+            cmd.extend(["--model", agent.model])
+
+        if agent.claude_code_flags:
+            cmd.extend(agent.claude_code_flags)
+
+        # --- MCP server config ---------------------------------------------------
+        mcp_config_path: Path | None = None
+        if agent.mcp:
+            mcp_config = _build_mcp_config(agent.mcp)
+            mcp_config_path = _write_temp_file(
+                json.dumps(mcp_config, indent=2),
+                prefix="aq_mcp_",
+                suffix=".json",
+            )
+            cmd.extend(["--mcp-config", str(mcp_config_path)])
+
+        # --- Logging (redacted) --------------------------------------------------
+        logger.info(
+            "[ClaudeCodeRuntime] Running agent '%s' | command: %s",
+            agent.id,
+            " ".join(_redact_command(cmd)),
+        )
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                cwd=str(self.project_root),
+                timeout=600,
+            )
+
+            if result.returncode != 0:
+                error_msg = (
+                    result.stderr.strip() or f"Exit code: {result.returncode}"
+                )
+                logger.error(
+                    "[ClaudeCodeRuntime] Agent '%s' failed: %s",
+                    agent.id,
+                    error_msg,
+                )
+                raise RuntimeError(
+                    f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+                )
+
+            output = result.stdout.strip()
+            logger.info(
+                "[ClaudeCodeRuntime] Agent '%s' completed (%d chars)",
+                agent.id,
+                len(output),
+            )
+            return output
+
+        finally:
+            # Clean up temp files even if the process crashes or times out.
+            if mcp_config_path is not None:
+                mcp_config_path.unlink(missing_ok=True)
+                if mcp_config_path in _TEMP_FILES_TO_CLEANUP:
+                    _TEMP_FILES_TO_CLEANUP.remove(mcp_config_path)

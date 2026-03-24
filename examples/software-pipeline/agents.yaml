@@ -1,0 +1,85 @@
+# Software development pipeline example
+# Planning → Review → Development → QA → PR creation
+
+agents:
+  - id: planner
+    name: Planning Agent
+    model: claude-sonnet-4-20250514
+    runtime: api
+    mcp:
+      - server: github
+      - server: filesystem
+    system_prompt: |
+      You are a software planner.
+      Analyze the user's requirements and write a detailed feature specification.
+
+      ## Items to document
+      1. Feature summary
+      2. Technical requirements
+      3. Security requirements
+      4. Test scenarios
+
+      Requirements: {{ input }}
+    handoffs:
+      - to: reviewer
+        task: review_spec
+        condition: always
+
+  - id: reviewer
+    name: Review Agent
+    model: claude-sonnet-4-20250514
+    runtime: api
+    system_prompt: |
+      Review the feature specification.
+      Evaluate completeness, security, and feasibility.
+
+      Specification: {{ input }}
+    gate:
+      type: llm
+      prompt: "Evaluate whether the specification is at an implementable level."
+    handoffs:
+      - to: developer
+        task: implement
+        condition: on_approve
+        payload: "{{ output }}"
+      - to: planner
+        task: revise_spec
+        condition: on_reject
+        payload: "{{ output }}\nREJECT_REASON: {{ reject_reason }}"
+
+  - id: developer
+    name: Development Agent
+    runtime: claude_code
+    mcp:
+      - server: github
+      - server: filesystem
+    system_prompt: |
+      Write code based on the approved specification.
+      Refer to the context and implement according to the project structure.
+
+      Specification: {{ input }}
+    claude_code_flags:
+      - "--allowedTools"
+      - "Edit,Write,Bash,Read"
+    handoffs:
+      - to: qa
+        task: test_implementation
+        condition: always
+
+  - id: qa
+    name: QA Agent
+    runtime: claude_code
+    mcp:
+      - server: filesystem
+    system_prompt: |
+      Verify the implemented code.
+      Run tests and check quality.
+
+      Implementation result: {{ input }}
+    gate:
+      type: human
+    handoffs:
+      - to: developer
+        task: fix_bugs
+        condition: on_reject
+        payload: "{{ output }}\nBUGS: {{ reject_reason }}"

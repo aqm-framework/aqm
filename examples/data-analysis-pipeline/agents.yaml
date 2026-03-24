@@ -1,0 +1,55 @@
+# Data analysis pipeline example
+# Collection → Cleaning → Analysis → Report
+
+agents:
+  - id: collector
+    name: Data Collection Agent
+    runtime: claude_code
+    mcp:
+      - server: postgres
+      - server: filesystem
+    system_prompt: |
+      Collect data matching the request.
+      Retrieve data from DB queries or files.
+
+      Request: {{ input }}
+    handoffs:
+      - to: cleaner
+        task: clean_data
+        condition: always
+
+  - id: cleaner
+    name: Data Cleaning Agent
+    runtime: claude_code
+    system_prompt: |
+      Clean the collected data.
+      Handle missing values, remove outliers, standardize formats.
+
+      Raw data: {{ input }}
+    handoffs:
+      - to: analyst
+        task: analyze
+        condition: always
+
+  - id: analyst
+    name: Analysis Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Analyze the cleaned data.
+      Identify patterns, trends, and insights.
+
+      Data: {{ input }}
+    handoffs:
+      - to: reporter
+        task: generate_report
+        condition: always
+
+  - id: reporter
+    name: Report Agent
+    runtime: api
+    system_prompt: |
+      Write a report based on the analysis results.
+      Summarize at a level that executives can understand.
+
+      Analysis results: {{ input }}

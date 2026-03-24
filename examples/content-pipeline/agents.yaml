@@ -1,0 +1,60 @@
+# Content creation pipeline example
+# Research → Draft → Edit → Publish
+
+agents:
+  - id: researcher
+    name: Research Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Conduct in-depth research on the topic.
+      Organize key points, statistics, and case studies.
+
+      Topic: {{ input }}
+    handoffs:
+      - to: writer
+        task: draft_content
+        condition: always
+
+  - id: writer
+    name: Writing Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Write compelling content based on the research results.
+
+      Research: {{ input }}
+    handoffs:
+      - to: editor
+        task: review_content
+        condition: always
+
+  - id: editor
+    name: Editing Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Edit the content.
+      Improve grammar, logical flow, and readability.
+
+      Draft: {{ input }}
+    gate:
+      type: llm
+      prompt: "Evaluate whether the content is at a publishable quality level."
+    handoffs:
+      - to: publisher
+        task: publish
+        condition: on_approve
+      - to: writer
+        task: revise_content
+        condition: on_reject
+        payload: "{{ output }}\nFeedback: {{ reject_reason }}"
+
+  - id: publisher
+    name: Publishing Agent
+    runtime: api
+    system_prompt: |
+      Finalize the edited content.
+      Add formatting, metadata, and tags.
+
+      Content: {{ input }}

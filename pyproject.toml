@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-queue"
+version = "0.1.0"
+description = "AI 에이전트 오케스트레이션 프레임워크 — YAML 파이프라인을 만들고, 공유하고, 실행하세요"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "click>=8.0",
+    "pydantic>=2.0",
+    "jinja2>=3.0",
+    "pyyaml>=6.0",
+    "anthropic>=0.40",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+serve = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.scripts]
+agent-queue = "agent_queue.cli:cli"
