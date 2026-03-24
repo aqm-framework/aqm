@@ -559,7 +559,12 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
                     param_defs[pname] = ParamDefinition(default=pval)
 
             # Check if any params need interactive prompts
+            # Look for params.yaml in pipeline dir, then .aqm/ dir
             overrides_file = agents_yaml_path.parent / "params.yaml"
+            if not overrides_file.exists():
+                aqm_params = root / ".aqm" / "params.yaml"
+                if aqm_params.exists():
+                    overrides_file = aqm_params
             interactive_params = _prompt_for_params(
                 param_defs, cli_params, overrides_file
             )
