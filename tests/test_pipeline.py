@@ -52,7 +52,7 @@ class TestAgentYAML:
     def test_agent_fields(self, sample_agents):
         a = sample_agents["agent_a"]
         assert a.name == "Agent A"
-        assert a.runtime == "api"
+        assert a.runtime == "text"
         assert len(a.handoffs) == 1
         assert a.handoffs[0].to == "agent_b"
 
@@ -72,7 +72,7 @@ class TestAgentYAML:
                 {
                     "id": "a",
                     "name": "A",
-                    "runtime": "api",
+                    "runtime": "text",
                     "handoffs": [{"to": "nonexistent", "condition": "always"}],
                 }
             ]
@@ -86,8 +86,8 @@ class TestAgentYAML:
     def test_duplicate_agent_id(self, tmp_project):
         yaml_content = {
             "agents": [
-                {"id": "dup", "name": "A", "runtime": "api"},
-                {"id": "dup", "name": "B", "runtime": "api"},
+                {"id": "dup", "name": "A", "runtime": "text"},
+                {"id": "dup", "name": "B", "runtime": "text"},
             ]
         }
         yaml_path = tmp_project / ".aqm" / "agents.yaml"
@@ -103,7 +103,7 @@ class TestAgentYAML:
                 {
                     "id": "test",
                     "name": "Test",
-                    "runtime": "api",
+                    "runtime": "text",
                     "mcp": [
                         {"server": "github"},
                         {"server": "filesystem", "args": ["/tmp"]},
@@ -302,7 +302,7 @@ class TestProject:
     def test_init_project(self, tmp_path):
         root = init_project(tmp_path)
         assert (root / ".aqm").is_dir()
-        assert (root / ".aqm" / "agents.yaml").exists()
+        assert (root / ".aqm" / "pipelines" / "default.yaml").exists()
         assert (root / ".aqm" / "tasks").is_dir()
 
     def test_find_project_root(self, tmp_project):
@@ -481,13 +481,13 @@ class TestHandoffRouting:
                 {
                     "id": "router",
                     "name": "Router",
-                    "runtime": "api",
+                    "runtime": "text",
                     "handoffs": [
                         {"to": "a, b", "condition": "always"},
                     ],
                 },
-                {"id": "a", "name": "A", "runtime": "api"},
-                {"id": "b", "name": "B", "runtime": "api"},
+                {"id": "a", "name": "A", "runtime": "text"},
+                {"id": "b", "name": "B", "runtime": "text"},
             ]
         }
         yaml_path = tmp_project / ".aqm" / "agents.yaml"

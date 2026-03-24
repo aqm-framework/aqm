@@ -13,9 +13,9 @@ Build pipelines in YAML. Share them with anyone. Run them locally.
 
 ## Powered by Claude Code
 
-aqm uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `api` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
+aqm uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `text` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
 
-- **`api` runtime** — Calls `claude -p <prompt> --print` for pure text generation (planning, reviewing, summarizing)
+- **`text` runtime** — Calls `claude -p <prompt> --print` for pure text generation (planning, reviewing, summarizing)
 - **`claude_code` runtime** — Runs Claude Code CLI with full tool access (file read/write, code execution, MCP tools)
 - **LLM Gate** — Also uses the Claude CLI for automatic approve/reject evaluation
 
@@ -94,7 +94,7 @@ agents:
   - id: planner
     name: Planning Agent
     model: claude-opus-4-6
-    runtime: api
+    runtime: text
     mcp:
       - server: github
       - server: filesystem
@@ -109,7 +109,7 @@ agents:
   - id: reviewer
     name: Review Agent
     model: claude-opus-4-6
-    runtime: api
+    runtime: text
     system_prompt: |
       Review the specification. Decide approve or reject.
       If rejecting, always include the reason.
@@ -696,7 +696,7 @@ imports:
 
 agents:
   - id: planner
-    runtime: api
+    runtime: text
     handoffs:
       - to: security_reviewer
         condition: always
@@ -706,7 +706,7 @@ agents:
 # .aqm/shared/reviewer.yaml
 agents:
   - id: security_reviewer
-    runtime: api
+    runtime: text
     system_prompt: "Review for security vulnerabilities: {{ input }}"
     gate:
       type: llm
@@ -723,7 +723,7 @@ Define a base agent and extend it to create specialized variants:
 agents:
   - id: base_reviewer
     abstract: true          # Not instantiated — only used as a base
-    runtime: api
+    runtime: text
     gate:
       type: llm
     system_prompt: "Review: {{ input }}"
@@ -751,7 +751,7 @@ Each agent supports the following fields:
 agents:
   - id: planner                      # (required) Unique identifier, used in handoff routing
     name: Planning Agent             # (required) Display name for CLI output and dashboard
-    runtime: api                     # (optional) api | claude_code — default: api
+    runtime: text                     # (optional) text | claude_code — default: text
     model: claude-sonnet-4-20250514  # (optional) Model to use, omit for CLI default
     system_prompt: |                 # (optional) Jinja2 template for the system prompt
       You are a software planner.
@@ -776,7 +776,7 @@ agents:
 |---|---|---|---|---|
 | `id` | `string` | **Yes** | — | Unique identifier. Used as handoff target. Must not duplicate. |
 | `name` | `string` | **Yes** | — | Human-readable display name. |
-| `runtime` | `"api"` \| `"claude_code"` | No | `"api"` | Execution runtime. See [Runtime](#runtime) section. |
+| `runtime` | `"text"` \| `"claude_code"` | No | `"text"` | Execution runtime. See [Runtime](#runtime) section. |
 | `model` | `string` | No | CLI default | Claude model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-20250514`). |
 | `system_prompt` | `string` | No | `""` | Jinja2 template. Available variables: `{{ input }}`, `{{ output }}`. |
 | `handoffs` | `list[Handoff]` | No | `[]` | Where to send results after this agent completes. |
@@ -792,10 +792,10 @@ agents:
 
 | Value | Description | Use Case |
 |---|---|---|
-| `api` | Runs `claude -p <prompt> --print`. Text-only, no tool access. | Planning, reviewing, summarizing, analysis |
+| `text` | Runs `claude -p <prompt> --print`. Text-only, no tool access. | Planning, reviewing, summarizing, analysis |
 | `claude_code` | Runs Claude Code CLI with full tool access. Can read/write files, execute shell commands, use MCP tools. | Implementation, testing, file manipulation |
 
-Both runtimes invoke the `claude` CLI as a subprocess. The difference is that `api` mode disables tool use, while `claude_code` mode enables full Claude Code capabilities.
+Both runtimes invoke the `claude` CLI as a subprocess. The difference is that `text` mode disables tool use, while `claude_code` mode enables full Claude Code capabilities.
 
 **model values** — Any valid Claude model ID:
 - `claude-opus-4-6` — Most capable, best for complex reasoning
@@ -858,7 +858,7 @@ The first target continues in the current task; additional targets spawn indepen
 # Triage agent analyzes the input and decides which specialist to hand off to
 - id: triage
   name: Triage Agent
-  runtime: api
+  runtime: text
   system_prompt: |
     Analyze the request and decide which agent should handle it.
     End your response with: HANDOFF: <agent_id>
@@ -903,7 +903,7 @@ handoffs:
 agents:
   - id: triage
     name: Triage Agent
-    runtime: api
+    runtime: text
     system_prompt: |
       Analyze this customer request. Determine which teams should handle it.
       If multiple teams are needed, list them all.
@@ -914,7 +914,7 @@ agents:
 
   - id: billing
     name: Billing Agent
-    runtime: api
+    runtime: text
     system_prompt: "Handle billing issues: {{ input }}"
 
   - id: technical
@@ -924,7 +924,7 @@ agents:
 
   - id: account
     name: Account Agent
-    runtime: api
+    runtime: text
     system_prompt: "Handle account issues: {{ input }}"
 ```
 
@@ -1028,7 +1028,7 @@ This is useful for restricting which tools an agent can use, or passing other Cl
 agents:
   - id: planner
     name: Planning Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a software planner.
@@ -1042,7 +1042,7 @@ agents:
 
   - id: reviewer
     name: Review Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Review this specification. Decide approve or reject.
@@ -1171,7 +1171,7 @@ aqm/
 │   │   └── file.py           # FileQueue (testing)
 │   ├── runtime/
 │   │   ├── base.py           # AbstractRuntime interface
-│   │   ├── api.py            # Claude CLI runtime (text-only)
+│   │   ├── text.py            # Claude CLI runtime (text-only)
 │   │   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
 │   ├── web/
 │   │   ├── app.py            # FastAPI app factory

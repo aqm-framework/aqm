@@ -27,7 +27,7 @@ from aqm.core.gate import (
 from aqm.core.project import get_tasks_dir
 from aqm.core.task import StageRecord, Task, TaskStatus
 from aqm.queue.base import AbstractQueue
-from aqm.runtime.api import APIRuntime
+from aqm.runtime.text import TextRuntime
 from aqm.runtime.base import AbstractRuntime
 from aqm.runtime.claude_code import ClaudeCodeRuntime
 
@@ -78,8 +78,8 @@ class Pipeline:
     def _get_runtime(self, agent: AgentDefinition) -> AbstractRuntime:
         """Return a runtime instance matching the agent's runtime type."""
         if agent.runtime not in self._runtimes:
-            if agent.runtime == "api":
-                self._runtimes["api"] = APIRuntime(self.project_root)
+            if agent.runtime == "text":
+                self._runtimes["text"] = TextRuntime(self.project_root)
             elif agent.runtime == "claude_code":
                 self._runtimes["claude_code"] = ClaudeCodeRuntime(
                     self.project_root

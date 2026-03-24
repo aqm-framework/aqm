@@ -28,7 +28,7 @@ agents:
   # Fetches PR details and diff via GitHub MCP, then fans out to 3 reviewers.
   - id: diff_loader
     name: Diff Loader
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: github
@@ -47,7 +47,7 @@ agents:
   # ── Stage 2a: Security Review (parallel) ───────────────────────────────
   - id: security
     name: Security Reviewer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a security-focused code reviewer for ${{ params.language }} code.
@@ -71,7 +71,7 @@ agents:
   # ── Stage 2b: Performance Review (parallel) ────────────────────────────
   - id: performance
     name: Performance Reviewer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a performance-focused code reviewer for ${{ params.language }} code.
@@ -95,7 +95,7 @@ agents:
   # ── Stage 2c: Style Review (parallel) ──────────────────────────────────
   - id: style
     name: Style Reviewer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a code style reviewer for ${{ params.language }} code.
@@ -119,7 +119,7 @@ agents:
   # a unified review summary.
   - id: summarizer
     name: Review Summarizer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: github

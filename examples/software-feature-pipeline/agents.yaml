@@ -28,7 +28,7 @@ agents:
   - id: planner
     name: Planning Agent
     model: claude-sonnet-4-20250514
-    runtime: api
+    runtime: text
     mcp:
       - server: github
       - server: filesystem
@@ -56,7 +56,7 @@ agents:
   - id: reviewer
     name: Review Agent
     model: claude-sonnet-4-20250514
-    runtime: api
+    runtime: text
     system_prompt: |
       Review the feature specification for a ${{ params.project_language }} project.
       Strictness level: ${{ params.review_strictness }}.

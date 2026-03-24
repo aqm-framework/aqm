@@ -28,7 +28,7 @@ agents:
   # Analyzes the current blog post for SEO weaknesses.
   - id: analyzer
     name: SEO Analyzer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: filesystem
@@ -61,7 +61,7 @@ agents:
   # Rewrites the content based on SEO analysis.
   - id: rewriter
     name: SEO Rewriter
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Rewrite the blog post to improve SEO while maintaining quality.
@@ -93,7 +93,7 @@ agents:
   # ── Stage 3a: Readability Check (parallel) ─────────────────────────────
   - id: readability_checker
     name: Readability Checker
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Check the readability of the optimized blog post.
@@ -118,7 +118,7 @@ agents:
   # ── Stage 3b: Technical SEO Check (parallel) ──────────────────────────
   - id: technical_checker
     name: Technical SEO Checker
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Perform a technical SEO check on the optimized blog post.
@@ -146,7 +146,7 @@ agents:
   # LLM gate checks overall SEO score. Below threshold -> back to rewriter.
   - id: keyword_checker
     name: SEO Score Gate
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Compile the readability and technical SEO results into a final SEO score.
@@ -186,7 +186,7 @@ agents:
   # Prepares the final output with all SEO metadata.
   - id: publisher
     name: Blog Publisher
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: filesystem

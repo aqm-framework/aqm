@@ -124,7 +124,7 @@ agents:
   # Human gate: a release manager or tech lead approves deployment.
   - id: deploy_approval
     name: Deploy Approver
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Prepare the release summary for deployment to ${{ params.deploy_target }}.

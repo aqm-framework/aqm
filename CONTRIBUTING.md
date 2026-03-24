@@ -110,7 +110,7 @@ params:
 agents:
   - id: extractor
     name: Contract Extractor
-    runtime: api
+    runtime: text
     system_prompt: |
       Extract key clauses, dates, and obligations from this contract.
       Jurisdiction: ${{ params.jurisdiction }}
@@ -121,7 +121,7 @@ agents:
 
   - id: risk_assessor
     name: Risk Assessment Agent
-    runtime: api
+    runtime: text
     gate:
       type: llm
       prompt: "Are there any high-risk clauses that require human review?"
@@ -133,7 +133,7 @@ agents:
 
   - id: human_review
     name: Human Review Gate
-    runtime: api
+    runtime: text
     gate:
       type: human
     handoffs:
@@ -142,7 +142,7 @@ agents:
 
   - id: summarizer
     name: Summary Agent
-    runtime: api
+    runtime: text
     system_prompt: |
       Produce a final contract summary with risk assessment.
       Input: {{ input }}
@@ -182,7 +182,7 @@ aqm/
 │   └── file.py           # FileQueue (for testing)
 ├── runtime/
 │   ├── base.py           # AbstractRuntime interface
-│   ├── api.py            # Claude CLI runtime (text-only)
+│   ├── text.py            # Claude CLI runtime (text-only)
 │   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
 ├── web/
 │   ├── app.py            # FastAPI app factory

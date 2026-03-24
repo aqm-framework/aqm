@@ -180,7 +180,7 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 |-------|------|----------|---------|-------------|
 | `id` | string | Yes | — | Unique identifier. Pattern: `^[a-zA-Z_][a-zA-Z0-9_-]*$`. Used in handoff targets and CLI. |
 | `name` | string | No | `""` | Human-readable display name. Auto-generated from `id` if omitted (e.g. `code_reviewer` becomes `"Code Reviewer"`). |
-| `runtime` | `"api"` \| `"claude_code"` | No | `"api"` | Execution runtime. `api` = Anthropic Messages API. `claude_code` = Claude Code CLI subprocess. |
+| `runtime` | `"text"` \| `"claude_code"` | No | `"text"` | Execution runtime. `text` = Claude CLI text-only mode (no tool access). `claude_code` = Claude Code CLI subprocess. |
 | `model` | string \| null | No | `null` | Model identifier (e.g. `"claude-sonnet-4-20250514"`). If null, runtime default is used. |
 | `system_prompt` | string | No | `""` | System prompt. Supports `${{ params.X }}` substitution. |
 | `handoffs` | array of Handoff | No | `[]` | Handoff rules for routing output to other agents. |
@@ -194,7 +194,7 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 agents:
   - id: base_reviewer
     abstract: true
-    runtime: api
+    runtime: text
     model: ${{ params.model }}
 
   - id: code_reviewer
