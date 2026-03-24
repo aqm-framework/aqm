@@ -19,6 +19,8 @@ class TaskStatus(str, Enum):
     rejected = "rejected"
     completed = "completed"
     failed = "failed"
+    cancelled = "cancelled"
+    stalled = "stalled"  # was in_progress when server restarted
 
 
 def _generate_task_id() -> str:

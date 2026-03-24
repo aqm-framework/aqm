@@ -70,6 +70,7 @@ async function gateAction(action) {{
   <h3><span class="live-dot"></span>Pipeline Running</h3>
   <div class="progress-bar" style="margin-top:8px;"><div class="fill" id="progressFill" style="width:0%"></div></div>
   <div id="liveStatus" style="margin-top:8px;font-size:13px;color:var(--text-dim);"></div>
+  <button class="btn btn-red btn-sm" style="margin-top:12px;" onclick="cancelRunningTask()">Cancel</button>
 </div>
 <script>
 (function() {{
@@ -97,6 +98,11 @@ async function gateAction(action) {{
     showToast('Pipeline completed');
     setTimeout(() => location.reload(), 800);
   }});
+  es.addEventListener('task_cancelled', (e) => {{
+    es.close();
+    showToast('Pipeline cancelled');
+    setTimeout(() => location.reload(), 800);
+  }});
   es.addEventListener('task_failed', (e) => {{
     es.close();
     const d = JSON.parse(e.data);
@@ -105,6 +111,14 @@ async function gateAction(action) {{
   }});
   es.onerror = () => {{ es.close(); }};
 }})();
+async function cancelRunningTask() {{
+  if (!confirm('Cancel this running pipeline?')) return;
+  try {{
+    await apiFetch('/api/tasks/{esc(task.id)}/cancel', {{method:'POST', body:'{{}}'}});
+    showToast('Cancellation requested');
+    setTimeout(() => location.reload(), 1000);
+  }} catch(e) {{}}
+}}
 </script>"""
 
     # Stage timeline

@@ -59,8 +59,8 @@ async function runValidation() {
   }
 }
 
-// Auto-validate on load
-runValidation();
+// Auto-validate on load (defer to ensure apiFetch is defined)
+window.addEventListener('DOMContentLoaded', () => setTimeout(runValidation, 50));
 </script>"""
 
     return layout("Validate", body, active="validate")

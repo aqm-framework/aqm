@@ -110,8 +110,8 @@ async function publishPipeline(localOnly) {
   } catch(e) {}
 }
 
-// Auto-search on load
-searchRegistry();
+// Auto-search on load (defer to ensure apiFetch is defined)
+window.addEventListener('DOMContentLoaded', () => setTimeout(searchRegistry, 50));
 </script>"""
 
     return layout("Registry", body, active="registry")

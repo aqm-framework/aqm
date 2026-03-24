@@ -61,6 +61,8 @@ tr:hover td { background:rgba(88,166,255,.04); }
 .badge-awaiting_gate { background:#462c08; color:#d29922; }
 .badge-approved,.badge-completed { background:#0f2d16; color:#3fb950; }
 .badge-rejected,.badge-failed { background:#3d1214; color:#f85149; }
+.badge-cancelled { background:#30363d; color:#d29922; }
+.badge-stalled { background:#462c08; color:#d29922; }
 .badge-started { background:#0d419d; color:#58a6ff; }
 
 /* Buttons */

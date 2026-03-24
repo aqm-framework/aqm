@@ -35,6 +35,20 @@ logger = logging.getLogger(__name__)
 
 MAX_STAGES = 20
 
+# Thread-safe set of task IDs that have been requested to cancel.
+# Checked each iteration of the pipeline loop.
+_cancelled_tasks: set[str] = set()
+
+
+def cancel_task(task_id: str) -> None:
+    """Request cancellation of a running task."""
+    _cancelled_tasks.add(task_id)
+
+
+def is_cancelled(task_id: str) -> bool:
+    """Check if a task has been requested to cancel."""
+    return task_id in _cancelled_tasks
+
 
 class Pipeline:
     """Agent pipeline orchestrator."""
@@ -246,6 +260,15 @@ class Pipeline:
         ctx_file = self._get_context_file(task)
 
         while task.next_stage_number <= MAX_STAGES:
+            # Check for cancellation
+            if is_cancelled(task.id):
+                _cancelled_tasks.discard(task.id)
+                task.status = TaskStatus.cancelled
+                task.metadata["cancel_reason"] = "Cancelled by user"
+                self.queue.update(task)
+                logger.info(f"[Pipeline] {task.id} cancelled by user")
+                return task
+
             if current_agent_id not in self.agents:
                 raise ValueError(
                     f"Agent '{current_agent_id}' is not defined."

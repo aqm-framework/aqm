@@ -330,6 +330,35 @@ def create_tasks_router(project_root: Path) -> APIRouter:
 
         return {"id": task_id, "status": "rejected", "message": "Task rejected, pipeline resuming"}
 
+    # ── Cancel ─────────────────────────────────────────────────────────
+
+    @router.post("/api/tasks/{task_id}/cancel")
+    async def api_cancel(task_id: str):
+        from aqm.core.pipeline import cancel_task as signal_cancel
+
+        queue = _get_queue()
+        try:
+            task = queue.get(task_id)
+            if not task:
+                raise HTTPException(404, "Task not found")
+            if task.status.value in ("completed", "failed", "cancelled"):
+                raise HTTPException(400, f"Task already {task.status.value}")
+
+            if task.status == TaskStatus.in_progress:
+                signal_cancel(task_id)
+                broadcast_event(task_id, "task_cancelled", {"reason": "Cancelled by user"})
+                return {"id": task_id, "status": "cancelling", "message": "Cancellation signalled, will stop at next stage boundary"}
+
+            # pending/awaiting_gate — cancel immediately
+            task.status = TaskStatus.cancelled
+            task.metadata["cancel_reason"] = "Cancelled by user"
+            task.touch()
+            queue.update(task)
+            broadcast_event(task_id, "task_cancelled", {"reason": "Cancelled by user"})
+            return {"id": task_id, "status": "cancelled", "message": "Task cancelled"}
+        finally:
+            queue.close()
+
     # ── SSE Events ─────────────────────────────────────────────────────
 
     @router.get("/api/tasks/{task_id}/events")
