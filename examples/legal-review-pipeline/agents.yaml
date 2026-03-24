@@ -1,0 +1,141 @@
+# =============================================================================
+# Legal Document Review Pipeline
+# =============================================================================
+# Flow: extractor -> summarizer -> risk_flagger (LLM gate) -> human_approver
+#
+# Differentiators used:
+#   - approve/reject gate (LLM gate on risk assessment + human gate for final)
+#   - Reverse feedback loop (risk rejection -> back to extractor for re-analysis)
+#   - File-based context.md accumulation (audit trail)
+#   - Declarative MCP server connections (filesystem)
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "Review the SaaS vendor agreement at /contracts/vendor-2026-q1.pdf"
+# =============================================================================
+
+params:
+  jurisdiction: "United States (Delaware)"
+  company_name: "Acme Corp"
+  contract_type: "SaaS vendor agreement"
+  risk_tolerance: "moderate"
+  legal_team_email: "legal@acme.com"
+
+agents:
+  # ── Stage 1: Extract Key Terms ─────────────────────────────────────────
+  # Reads the document and pulls out all legally significant terms.
+  - id: extractor
+    name: Term Extractor
+    runtime: api
+    model: claude-sonnet-4-20250514
+    mcp:
+      - server: filesystem
+    system_prompt: |
+      You are a legal analyst reviewing a ${{ params.contract_type }}
+      under ${{ params.jurisdiction }} law for ${{ params.company_name }}.
+
+      Extract and organize the following from the document:
+      1. Parties and effective date
+      2. Term and renewal clauses
+      3. Payment terms and pricing
+      4. SLA commitments and penalties
+      5. Liability caps and indemnification
+      6. IP ownership and licensing terms
+      7. Data protection and privacy clauses
+      8. Termination conditions and exit clauses
+      9. Non-compete and exclusivity provisions
+      10. Governing law and dispute resolution
+
+      Present each term with the exact clause reference (section number).
+
+      Document: {{ input }}
+    handoffs:
+      - to: summarizer
+        task: summarize_terms
+        condition: always
+
+  # ── Stage 2: Summarize ─────────────────────────────────────────────────
+  # Creates a plain-English summary of the document.
+  - id: summarizer
+    name: Legal Summarizer
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Summarize the extracted legal terms into plain English for
+      non-legal stakeholders at ${{ params.company_name }}.
+
+      For each extracted term, provide:
+      - What it means in practical terms
+      - How it compares to industry standard
+      - Whether it favors us, the vendor, or is balanced
+      - Any missing standard protections
+
+      Keep the summary concise but complete.
+      Flag anything unusual with a WARNING marker.
+
+      Extracted terms: {{ input }}
+    handoffs:
+      - to: risk_flagger
+        task: assess_risks
+        condition: always
+
+  # ── Stage 3: Risk Assessment ───────────────────────────────────────────
+  # LLM gate evaluates whether risks are acceptable.
+  # If too risky, loops back to extractor for deeper analysis.
+  - id: risk_flagger
+    name: Risk Assessor
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a legal risk analyst for ${{ params.company_name }}.
+      Risk tolerance: ${{ params.risk_tolerance }}.
+      Jurisdiction: ${{ params.jurisdiction }}.
+
+      Perform a risk assessment:
+      1. Rate overall risk: LOW / MEDIUM / HIGH / CRITICAL
+      2. For each clause, assign a risk score (1-10)
+      3. Identify deal-breaker clauses
+      4. List recommended negotiation points
+      5. Compare to ${{ params.company_name }}'s standard terms
+      6. Flag regulatory compliance concerns
+
+      Summary: {{ input }}
+    gate:
+      type: llm
+      prompt: "Given a ${{ params.risk_tolerance }} risk tolerance, are the identified risks acceptable? Reject if any CRITICAL risks or more than 3 HIGH risks exist."
+    handoffs:
+      # Risks acceptable -> human review
+      - to: human_approver
+        task: final_review
+        condition: on_approve
+      # Risks too high -> loop back for deeper analysis
+      - to: extractor
+        task: deep_dive
+        condition: on_reject
+        payload: "{{ output }}\n\nRISK_CONCERNS: {{ reject_reason }}\nPlease re-examine the high-risk clauses and extract additional context, including related clauses and precedent language."
+
+  # ── Stage 4: Human Approval ────────────────────────────────────────────
+  # Final human gate — a real lawyer or legal team lead approves.
+  - id: human_approver
+    name: Legal Counsel Gate
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Prepare the final legal review package for ${{ params.legal_team_email }}.
+
+      Compile from all previous stages:
+      1. Document summary (2-3 paragraphs)
+      2. Risk matrix (clause | risk level | recommendation)
+      3. Recommended changes (specific redline suggestions)
+      4. Approval recommendation: APPROVE / APPROVE_WITH_CHANGES / REJECT
+      5. Next steps based on each possible decision
+
+      Review context: {{ input }}
+    gate:
+      type: human
+    handoffs:
+      # If legal counsel rejects, go back to risk assessment with feedback
+      - to: risk_flagger
+        task: reassess
+        condition: on_reject
+        payload: "{{ output }}\n\nCOUNSEL_FEEDBACK: {{ reject_reason }}\nPlease reassess with the additional legal guidance provided."

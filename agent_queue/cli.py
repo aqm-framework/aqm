@@ -8,6 +8,7 @@ agent-queue approve    Approve human gate
 agent-queue reject     Reject human gate
 agent-queue agents     List agents
 agent-queue context    View task context
+agent-queue validate   Validate agents.yaml against JSON Schema
 agent-queue serve      Run web dashboard
 agent-queue pull       Pull pipeline from registry
 agent-queue publish    Publish pipeline to registry
@@ -95,10 +96,34 @@ def init(path: str | None) -> None:
 @cli.command()
 @click.argument("input_text")
 @click.option("--agent", default=None, help="Starting agent ID (default: first)")
-def run(input_text: str, agent: str | None) -> None:
+@click.option(
+    "--param", "-p",
+    "params",
+    multiple=True,
+    help="Parameter override in key=value format (repeatable)",
+)
+def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
     """Run pipeline. Example: agent-queue run 'Build a login feature'"""
     root = _require_project()
-    agents = load_agents(get_agents_yaml_path(root))
+
+    # Parse --param key=value pairs into a dict
+    cli_params: dict[str, str] = {}
+    for p in params:
+        if "=" not in p:
+            console.print(
+                f"[red]Error:[/] Invalid --param format: '{p}'. "
+                f"Expected key=value."
+            )
+            sys.exit(1)
+        key, value = p.split("=", 1)
+        cli_params[key.strip()] = value.strip()
+
+    try:
+        agents = load_agents(get_agents_yaml_path(root), cli_params=cli_params or None)
+    except (ValueError, FileNotFoundError) as e:
+        console.print(f"[red]Error:[/] {e}")
+        sys.exit(1)
+
     queue = _get_queue(root)
 
     start_agent = agent or next(iter(agents))
@@ -154,10 +179,11 @@ def run(input_text: str, agent: str | None) -> None:
 @cli.command(hidden=True)
 @click.argument("input_text")
 @click.option("--agent", default=None)
+@click.option("--param", "-p", "params", multiple=True)
 @click.pass_context
-def task(ctx, input_text: str, agent: str | None) -> None:
+def task(ctx, input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
     """Create and run a task (alias for run)."""
-    ctx.invoke(run, input_text=input_text, agent=agent)
+    ctx.invoke(run, input_text=input_text, agent=agent, params=params)
 
 
 # ── status ──────────────────────────────────────────────────────────────
@@ -353,6 +379,133 @@ def context(task_id: str) -> None:
         return
 
     console.print(context_path.read_text(encoding="utf-8"))
+
+
+# ── validate ─────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument(
+    "path",
+    type=click.Path(exists=True),
+    default=".agent-queue/agents.yaml",
+    required=False,
+)
+def validate(path: str) -> None:
+    """Validate agents.yaml against the JSON Schema."""
+    import json
+
+    try:
+        from jsonschema import Draft7Validator, ValidationError
+    except ImportError:
+        console.print(
+            "[red]Error:[/] jsonschema package is required.\n"
+            "  pip install 'jsonschema>=4.0'"
+        )
+        sys.exit(1)
+
+    import yaml as _yaml
+
+    # Load the YAML file
+    yaml_path = Path(path)
+    try:
+        with open(yaml_path, encoding="utf-8") as f:
+            data = _yaml.safe_load(f)
+    except Exception as e:
+        console.print(f"[red]Error:[/] Failed to parse YAML: {e}")
+        sys.exit(1)
+
+    if not isinstance(data, dict):
+        console.print(
+            "[red]Error:[/] agents.yaml must be a YAML mapping (object), "
+            f"got {type(data).__name__}."
+        )
+        sys.exit(1)
+
+    # Load the JSON Schema from the package
+    schema_path = Path(__file__).resolve().parent.parent / "schema" / "agents-schema.json"
+    if not schema_path.exists():
+        console.print(
+            f"[red]Error:[/] JSON Schema not found at {schema_path}.\n"
+            "  Ensure the schema/ directory is installed with the package."
+        )
+        sys.exit(1)
+
+    with open(schema_path, encoding="utf-8") as f:
+        schema = json.load(f)
+
+    # Validate
+    validator = Draft7Validator(schema)
+    errors = sorted(validator.iter_errors(data), key=lambda e: list(e.absolute_path))
+
+    if errors:
+        console.print(
+            f"[red]Validation failed[/] — {len(errors)} error(s) in {yaml_path}\n"
+        )
+        for i, error in enumerate(errors, 1):
+            field_path = " -> ".join(str(p) for p in error.absolute_path) or "(root)"
+            console.print(f"  [red]{i}.[/] [bold]{field_path}[/]")
+            console.print(f"     {error.message}")
+
+            # Provide fix suggestions for common issues
+            if "is a required property" in error.message:
+                prop = error.message.split("'")[1]
+                console.print(
+                    f"     [dim]Fix: Add the '{prop}' field to your agents.yaml.[/]"
+                )
+            elif "is not valid under any of the given schemas" in error.message:
+                console.print(
+                    f"     [dim]Fix: Check the field type and format. "
+                    f"See docs/spec.md for allowed values.[/]"
+                )
+            elif "is not one of" in error.message:
+                console.print(
+                    f"     [dim]Fix: Use one of the allowed values listed above.[/]"
+                )
+            elif "Additional properties are not allowed" in error.message:
+                console.print(
+                    f"     [dim]Fix: Remove the unrecognized field(s) or check spelling.[/]"
+                )
+            console.print()
+
+        sys.exit(1)
+
+    # Success — collect summary stats
+    agents_list = data.get("agents", [])
+    agent_count = len(agents_list)
+    param_count = len(data.get("params", {}))
+    import_count = len(data.get("imports", []))
+
+    features = []
+    has_gates = any(a.get("gate") for a in agents_list)
+    has_mcp = any(a.get("mcp") for a in agents_list)
+    has_handoffs = any(a.get("handoffs") for a in agents_list)
+    has_extends = any(a.get("extends") for a in agents_list)
+
+    if has_gates:
+        gate_types = set()
+        for a in agents_list:
+            g = a.get("gate")
+            if g:
+                gate_types.add(g.get("type", "llm") if isinstance(g, dict) else "llm")
+        features.append(f"gates ({', '.join(sorted(gate_types))})")
+    if has_mcp:
+        features.append("MCP servers")
+    if has_handoffs:
+        features.append("handoffs")
+    if has_extends:
+        features.append("extends/composition")
+    if param_count > 0:
+        features.append(f"{param_count} param(s)")
+    if import_count > 0:
+        features.append(f"{import_count} import(s)")
+
+    console.print(
+        f"[green]Valid[/] — {yaml_path}\n"
+        f"  Agents: {agent_count}"
+    )
+    if features:
+        console.print(f"  Features: {', '.join(features)}")
 
 
 # ── serve ───────────────────────────────────────────────────────────────

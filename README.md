@@ -385,13 +385,133 @@ The `agents.yaml` file is the single source of truth for your pipeline. It defin
 
 ```yaml
 # .agent-queue/agents.yaml
+params:          # (optional) Parameterization for reusability
+  model: claude-sonnet-4-20250514
+  project_path:
+    type: string
+    required: true
+    description: "Path to the project root"
+
+imports:         # (optional) Import agents from external files
+  - from: ./shared/reviewers.yaml
+    agents: [code_reviewer]
+
 agents:
   - id: ...      # First agent (pipeline entry point)
   - id: ...      # Second agent
   - id: ...      # ...
 ```
 
-The file has a single top-level key `agents` containing a list of agent definitions. The **first agent** in the list is used as the default starting point when running `agent-queue run`.
+The file has three top-level keys: `params` (variable declarations), `imports` (external agent files), and `agents` (the pipeline definition). The **first non-abstract agent** is used as the default starting point.
+
+---
+
+### Params — Parameterization for Reusability
+
+Params make pipelines portable. Declare variables with types and defaults, then reference them anywhere using `${{ params.var_name }}` syntax.
+
+```yaml
+params:
+  # Shorthand — just a default value
+  model: claude-sonnet-4-20250514
+
+  # Full declaration
+  project_path:
+    type: string        # string | number | boolean
+    required: true
+    description: "Path to the project root"
+
+  max_retries:
+    type: number
+    default: 3
+
+agents:
+  - id: developer
+    model: ${{ params.model }}
+    mcp:
+      - server: filesystem
+        args: ["${{ params.project_path }}"]
+```
+
+**Override params at runtime:**
+
+```bash
+# Via CLI flags
+agent-queue run "Build feature" --param model=claude-opus-4-6 --param project_path=/my/project
+
+# Via overrides file (.agent-queue/params.yaml)
+echo "model: claude-opus-4-6" > .agent-queue/params.yaml
+echo "project_path: /my/project" >> .agent-queue/params.yaml
+agent-queue run "Build feature"
+```
+
+**Resolution priority:** CLI flags > params.yaml file > default values.
+
+This is what makes the "pull and customize" workflow possible:
+```bash
+agent-queue pull software-dev-pipeline
+# Edit .agent-queue/params.yaml with your values
+agent-queue run "Build login feature"
+```
+
+---
+
+### Imports — Reuse Agents Across Pipelines
+
+Import agent definitions from external YAML files to avoid duplication:
+
+```yaml
+# .agent-queue/agents.yaml
+imports:
+  - from: ./shared/reviewer.yaml          # relative path
+    agents: [security_reviewer]            # import specific agents (optional — omit to import all)
+
+agents:
+  - id: planner
+    runtime: api
+    handoffs:
+      - to: security_reviewer
+        condition: always
+```
+
+```yaml
+# .agent-queue/shared/reviewer.yaml
+agents:
+  - id: security_reviewer
+    runtime: api
+    system_prompt: "Review for security vulnerabilities: {{ input }}"
+    gate:
+      type: llm
+      prompt: "Are there any security issues?"
+```
+
+---
+
+### Extends — Agent Inheritance
+
+Define a base agent and extend it to create specialized variants:
+
+```yaml
+agents:
+  - id: base_reviewer
+    abstract: true          # Not instantiated — only used as a base
+    runtime: api
+    gate:
+      type: llm
+    system_prompt: "Review: {{ input }}"
+
+  - id: code_reviewer
+    extends: base_reviewer  # Inherits runtime, gate from parent
+    system_prompt: "Review this CODE for bugs and style: {{ input }}"
+
+  - id: security_reviewer
+    extends: base_reviewer
+    system_prompt: "Review for security vulnerabilities: {{ input }}"
+```
+
+- `abstract: true` agents are excluded from the pipeline (base-only)
+- Child fields **override** parent fields (shallow merge)
+- Works with imports: import a base, extend it locally
 
 ---
 
@@ -435,6 +555,8 @@ agents:
 | `gate` | `GateConfig` | No | `null` | Quality gate evaluated before handoff routing. |
 | `mcp` | `list[MCPServer]` | No | `[]` | MCP servers to attach to this agent. |
 | `claude_code_flags` | `list[string]` | No | `null` | Additional CLI flags passed to `claude`. Only used with `claude_code` runtime. |
+| `abstract` | `boolean` | No | `false` | If `true`, agent is a base template only — excluded from pipeline execution. |
+| `extends` | `string` | No | `null` | ID of a parent agent to inherit fields from (shallow merge). |
 
 ---
 
@@ -784,6 +906,23 @@ In this example, the QA agent analyzes test results and autonomously decides:
 - **Declarative first** — Define in YAML, code is the escape hatch
 - **Gate is first-class** — approve/reject is a core feature
 
+## Documentation
+
+| Document | Description |
+|---|---|
+| [Core Concepts](docs/concepts.md) | Task, Queue, Handoff, Gate, Condition, Context, Pipeline — with LangGraph/CrewAI comparison tables |
+| [YAML Specification](docs/spec.md) | Independent `agents.yaml` format spec (`apiVersion: aqm/v0.1`), field reference, processing order, versioning policy |
+| [JSON Schema](schema/agents-schema.json) | Machine-readable schema for validation and IDE autocomplete |
+| [Competitive Analysis](docs/competitive-analysis.md) | Positioning vs. LangGraph, CrewAI, AutoGen, OpenSWE, Copilot, Vertex AI |
+| [Launch Playbook](docs/launch-playbook.md) | Launch sequence, channel strategy (HN/Reddit/Twitter/Dev.to drafts), first contributor plan |
+| [Seed Pipelines](examples/README.md) | 10 ready-to-use pipelines with feature matrix |
+| [Contributing](CONTRIBUTING.md) | How to contribute pipelines (equal to code!), submission template, review process |
+
+Validate your pipeline against the spec:
+```bash
+agent-queue validate .agent-queue/agents.yaml
+```
+
 ## Architecture
 
 ```
@@ -791,7 +930,7 @@ agent-queue/
 ├── agent_queue/
 │   ├── core/
 │   │   ├── task.py           # Task, StageRecord, TaskStatus
-│   │   ├── agent.py          # AgentDefinition, agents.yaml parsing
+│   │   ├── agent.py          # AgentDefinition, params, extends, imports
 │   │   ├── pipeline.py       # Pipeline execution loop
 │   │   ├── gate.py           # LLMGate / HumanGate
 │   │   ├── context_file.py   # File-based context accumulation
@@ -803,17 +942,20 @@ agent-queue/
 │   │   └── file.py           # FileQueue (testing)
 │   ├── runtime/
 │   │   ├── base.py           # AbstractRuntime interface
-│   │   ├── api.py            # Claude API runtime
-│   │   └── claude_code.py    # Claude Code CLI runtime
+│   │   ├── api.py            # Claude CLI runtime (text-only)
+│   │   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
 │   ├── web/
 │   │   └── app.py            # FastAPI web dashboard
 │   └── cli.py                # Click CLI
-├── examples/
-│   ├── software-pipeline/
-│   ├── content-pipeline/
-│   └── data-analysis-pipeline/
+├── schema/
+│   └── agents-schema.json    # JSON Schema for agents.yaml
+├── docs/
+│   ├── concepts.md           # Core concepts guide
+│   ├── spec.md               # YAML format specification
+│   ├── competitive-analysis.md
+│   └── launch-playbook.md
+├── examples/                  # 10 seed pipelines
 └── tests/
-    └── test_pipeline.py
 ```
 
 ## Roadmap
@@ -828,6 +970,10 @@ agent-queue/
 - [x] Local web UI dashboard
 - [x] Fan-out: parallel child tasks from comma-separated targets
 - [x] `condition: auto`: agent-decided routing via `HANDOFF:` directive
+- [x] `params`: parameterization with `${{ params.X }}` for portable pipelines
+- [x] `extends` / `abstract`: agent inheritance for DRY definitions
+- [x] `imports`: reuse agents across pipelines from external files
+- [x] 10 seed pipelines covering software, content, legal, data, and more
 
 ### v0.2 — Connections
 - [ ] Enhanced per-agent MCP server support

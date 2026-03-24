@@ -1,14 +1,42 @@
-# Content creation pipeline example
-# Research → Draft → Edit → Publish
+# =============================================================================
+# Content Creation Pipeline
+# =============================================================================
+# Flow: research -> write -> edit (LLM gate) -> publish
+#
+# Differentiators used:
+#   - approve/reject gate (LLM)
+#   - Reverse feedback loop (reject -> back to writer)
+#   - File-based context.md accumulation
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "Write a guide on microservices best practices"
+# =============================================================================
+
+params:
+  tone: "professional"
+  audience: "software developers"
+  word_count: "1500"
+  content_type: "blog post"
+  publish_platform: "WordPress"
 
 agents:
+  # ── Stage 1: Research ──────────────────────────────────────────────────
+  # Gathers facts, stats, and references on the topic.
   - id: researcher
     name: Research Agent
     runtime: api
     model: claude-sonnet-4-20250514
     system_prompt: |
-      Conduct in-depth research on the topic.
-      Organize key points, statistics, and case studies.
+      You are a research specialist preparing material for a ${{ params.content_type }}.
+      Target audience: ${{ params.audience }}.
+
+      Conduct in-depth research on the topic. Organize your findings into:
+      1. Key points and arguments
+      2. Supporting statistics and data
+      3. Relevant case studies or examples
+      4. Potential counter-arguments
+      5. Suggested sources and references
 
       Topic: {{ input }}
     handoffs:
@@ -16,45 +44,73 @@ agents:
         task: draft_content
         condition: always
 
+  # ── Stage 2: Writing ───────────────────────────────────────────────────
+  # Turns research into a polished draft.
   - id: writer
     name: Writing Agent
     runtime: api
     model: claude-sonnet-4-20250514
     system_prompt: |
-      Write compelling content based on the research results.
+      Write a compelling ${{ params.content_type }} based on the research provided.
 
-      Research: {{ input }}
+      Guidelines:
+      - Tone: ${{ params.tone }}
+      - Target audience: ${{ params.audience }}
+      - Target word count: ${{ params.word_count }} words
+      - Include a clear introduction, body, and conclusion
+      - Use subheadings for readability
+
+      Research material: {{ input }}
     handoffs:
       - to: editor
         task: review_content
         condition: always
 
+  # ── Stage 3: Editing ───────────────────────────────────────────────────
+  # LLM gate checks publishability. Rejected drafts go BACK to writer.
   - id: editor
     name: Editing Agent
     runtime: api
     model: claude-sonnet-4-20250514
     system_prompt: |
-      Edit the content.
-      Improve grammar, logical flow, and readability.
+      Edit this ${{ params.content_type }} for ${{ params.audience }}.
+
+      Check and improve:
+      - Grammar and spelling
+      - Logical flow and coherence
+      - Tone consistency (${{ params.tone }})
+      - Readability and engagement
+      - Factual accuracy of claims
+      - Word count target: ${{ params.word_count }}
 
       Draft: {{ input }}
     gate:
       type: llm
-      prompt: "Evaluate whether the content is at a publishable quality level."
+      prompt: "Is this ${{ params.content_type }} ready for publication? Evaluate quality, accuracy, and tone for the target audience: ${{ params.audience }}."
     handoffs:
+      # Approved -> publish
       - to: publisher
         task: publish
         condition: on_approve
+      # Rejected -> reverse feedback loop to writer
       - to: writer
         task: revise_content
         condition: on_reject
-        payload: "{{ output }}\nFeedback: {{ reject_reason }}"
+        payload: "{{ output }}\n\nEDITOR_FEEDBACK: {{ reject_reason }}\nPlease revise the draft addressing the feedback above."
 
+  # ── Stage 4: Publishing ────────────────────────────────────────────────
+  # Formats and prepares final output for the target platform.
   - id: publisher
     name: Publishing Agent
     runtime: api
+    model: claude-sonnet-4-20250514
     system_prompt: |
-      Finalize the edited content.
-      Add formatting, metadata, and tags.
+      Finalize the edited ${{ params.content_type }} for ${{ params.publish_platform }}.
 
-      Content: {{ input }}
+      Prepare the final version with:
+      - Proper formatting for ${{ params.publish_platform }}
+      - SEO-friendly meta description (under 160 characters)
+      - Suggested tags and categories
+      - Social media preview text
+
+      Approved content: {{ input }}

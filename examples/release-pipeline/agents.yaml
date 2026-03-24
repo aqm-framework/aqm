@@ -1,0 +1,149 @@
+# =============================================================================
+# Release Management Pipeline
+# =============================================================================
+# Flow: changelog -> version_bump -> test (LLM gate) -> deploy_approval (human gate)
+#
+# Differentiators used:
+#   - approve/reject gate (LLM gate on test results + human gate for deploy)
+#   - Reverse feedback loop (test failure -> back to version_bump)
+#   - Declarative MCP server connections (github, filesystem)
+#   - File-based context.md accumulation (release audit trail)
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "Prepare release for v2.4.0 from main branch"
+# =============================================================================
+
+params:
+  repo: "org/product"
+  version_strategy: "semver"
+  release_branch: "main"
+  deploy_target: "production"
+  changelog_format: "Keep a Changelog"
+  required_test_coverage: "80%"
+
+agents:
+  # ── Stage 1: Changelog Generation ──────────────────────────────────────
+  # Analyzes commits since last release and generates a changelog.
+  - id: changelog
+    name: Changelog Generator
+    runtime: claude_code
+    mcp:
+      - server: github
+      - server: filesystem
+    system_prompt: |
+      Generate a changelog for ${{ params.repo }} following the
+      ${{ params.changelog_format }} format.
+
+      Steps:
+      1. Find the latest release tag
+      2. Collect all commits since that tag on ${{ params.release_branch }}
+      3. Categorize changes: Added, Changed, Deprecated, Removed, Fixed, Security
+      4. Include PR numbers and author attribution
+      5. Write the changelog entry
+
+      Versioning strategy: ${{ params.version_strategy }}
+
+      Release request: {{ input }}
+    claude_code_flags:
+      - "--allowedTools"
+      - "Bash,Read"
+    handoffs:
+      - to: version_bump
+        task: bump_version
+        condition: always
+
+  # ── Stage 2: Version Bump ──────────────────────────────────────────────
+  # Updates version numbers across the codebase.
+  - id: version_bump
+    name: Version Bumper
+    runtime: claude_code
+    mcp:
+      - server: filesystem
+    system_prompt: |
+      Bump the version for ${{ params.repo }} using ${{ params.version_strategy }}.
+
+      Tasks:
+      1. Determine the new version number based on changelog categories
+         (breaking changes = major, features = minor, fixes = patch)
+      2. Update version in: package.json, pyproject.toml, or equivalent
+      3. Update CHANGELOG.md with the generated changelog
+      4. Verify all version references are consistent
+      5. Stage the changes (do NOT commit yet)
+
+      Changelog and context: {{ input }}
+    claude_code_flags:
+      - "--allowedTools"
+      - "Edit,Write,Bash,Read"
+    handoffs:
+      - to: test_runner
+        task: run_tests
+        condition: always
+
+  # ── Stage 3: Test Suite ────────────────────────────────────────────────
+  # Runs the full test suite. LLM gate evaluates results.
+  # Failure loops back to version_bump for fixes.
+  - id: test_runner
+    name: Test Runner
+    runtime: claude_code
+    mcp:
+      - server: filesystem
+    system_prompt: |
+      Run the complete test suite for ${{ params.repo }}.
+
+      Execute:
+      1. Unit tests
+      2. Integration tests
+      3. Lint and type checking
+      4. Test coverage report (target: ${{ params.required_test_coverage }})
+      5. Build verification (ensure the project compiles/bundles)
+
+      Report results with pass/fail counts and coverage percentage.
+
+      Version bump context: {{ input }}
+    claude_code_flags:
+      - "--allowedTools"
+      - "Bash,Read"
+    gate:
+      type: llm
+      prompt: "Do all tests pass and is coverage at or above ${{ params.required_test_coverage }}? Reject if any tests fail or coverage is below threshold."
+    handoffs:
+      # Tests pass -> deployment approval
+      - to: deploy_approval
+        task: request_deploy
+        condition: on_approve
+      # Tests fail -> reverse feedback loop to version bump
+      - to: version_bump
+        task: fix_and_retry
+        condition: on_reject
+        payload: "{{ output }}\n\nTEST_FAILURES: {{ reject_reason }}\nPlease fix the failing tests or version-related issues."
+
+  # ── Stage 4: Deploy Approval ───────────────────────────────────────────
+  # Human gate: a release manager or tech lead approves deployment.
+  - id: deploy_approval
+    name: Deploy Approver
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Prepare the release summary for deployment to ${{ params.deploy_target }}.
+
+      Compile from all previous stages:
+      1. Version: (extracted from context)
+      2. Changelog summary
+      3. Test results summary
+      4. Risk assessment (based on scope of changes)
+      5. Rollback plan
+      6. Deployment steps
+      7. Post-deployment verification checklist
+
+      Present this as a release approval request.
+
+      Release context: {{ input }}
+    gate:
+      type: human
+    handoffs:
+      # Rejected -> back to test runner with feedback
+      - to: test_runner
+        task: revalidate
+        condition: on_reject
+        payload: "{{ output }}\n\nDEPLOY_REJECTED: {{ reject_reason }}\nPlease address the concerns and re-run verification."
