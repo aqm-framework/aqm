@@ -5,10 +5,25 @@ An orchestration framework where multiple AI agents pass tasks through **explici
 Build pipelines in YAML. Share them with anyone. Run them locally.
 
 ```
-[planner] ──► [reviewer] ──approve──► [developer] ──► [qa]
-                  │                                     │
-                  └──reject──► [planner]    critical──► [planner]
+                 reject                          critical
+          ┌──────────────────────┐       ┌──────────────────┐
+          ▼                      │       ▼                  │
+      [planner] ──► [reviewer] ──┴─approve──► [developer] ──► [qa]
 ```
+
+## Powered by Claude Code
+
+agent-queue uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `api` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
+
+- **`api` runtime** — Calls `claude -p <prompt> --print` for pure text generation (planning, reviewing, summarizing)
+- **`claude_code` runtime** — Runs Claude Code CLI with full tool access (file read/write, code execution, MCP tools)
+- **LLM Gate** — Also uses the Claude CLI for automatic approve/reject evaluation
+
+> **Prerequisite:** Install Claude Code CLI and authenticate before using agent-queue.
+> ```bash
+> npm install -g @anthropic-ai/claude-code
+> claude login
+> ```
 
 ## Why agent-queue?
 
@@ -357,85 +372,299 @@ agent-queue search "content creation"
 
 > Registry feature coming in v0.3.
 
-## agents.yaml Reference
+## agents.yaml Complete Reference
+
+The `agents.yaml` file is the single source of truth for your pipeline. It defines all agents, their roles, how they connect, and how tasks flow between them.
+
+### Top-Level Structure
+
+```yaml
+# .agent-queue/agents.yaml
+agents:
+  - id: ...      # First agent (pipeline entry point)
+  - id: ...      # Second agent
+  - id: ...      # ...
+```
+
+The file has a single top-level key `agents` containing a list of agent definitions. The **first agent** in the list is used as the default starting point when running `agent-queue run`.
+
+---
 
 ### Agent Definition
 
+Each agent supports the following fields:
+
 ```yaml
 agents:
-  - id: planner                      # Unique ID (required)
-    name: Planning Agent             # Display name (required)
-    runtime: api                     # api | claude_code
-    model: claude-sonnet-4-20250514  # Optional
-    system_prompt: "..."             # Jinja2 template
-    handoffs: [...]                  # Handoff rules
-    gate: {...}                      # Gate config (optional)
-    mcp:                             # MCP servers (optional)
+  - id: planner                      # (required) Unique identifier, used in handoff routing
+    name: Planning Agent             # (required) Display name for CLI output and dashboard
+    runtime: api                     # (optional) api | claude_code — default: api
+    model: claude-sonnet-4-20250514  # (optional) Model to use, omit for CLI default
+    system_prompt: |                 # (optional) Jinja2 template for the system prompt
+      You are a software planner.
+      Analyze: {{ input }}
+    handoffs:                        # (optional) List of handoff rules
+      - to: reviewer
+        task: review_spec
+        condition: always
+    gate:                            # (optional) Quality gate configuration
+      type: llm
+      prompt: "Is this ready?"
+    mcp:                             # (optional) MCP server connections
       - server: github
-      - server: filesystem
-    claude_code_flags: [...]         # claude_code runtime only
+    claude_code_flags:               # (optional) Extra CLI flags, claude_code runtime only
+      - "--allowedTools"
+      - "Edit,Write,Bash,Read"
 ```
+
+#### Field Reference
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `id` | `string` | **Yes** | — | Unique identifier. Used as handoff target. Must not duplicate. |
+| `name` | `string` | **Yes** | — | Human-readable display name. |
+| `runtime` | `"api"` \| `"claude_code"` | No | `"api"` | Execution runtime. See [Runtime](#runtime) section. |
+| `model` | `string` | No | CLI default | Claude model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-20250514`). |
+| `system_prompt` | `string` | No | `""` | Jinja2 template. Available variables: `{{ input }}`, `{{ output }}`. |
+| `handoffs` | `list[Handoff]` | No | `[]` | Where to send results after this agent completes. |
+| `gate` | `GateConfig` | No | `null` | Quality gate evaluated before handoff routing. |
+| `mcp` | `list[MCPServer]` | No | `[]` | MCP servers to attach to this agent. |
+| `claude_code_flags` | `list[string]` | No | `null` | Additional CLI flags passed to `claude`. Only used with `claude_code` runtime. |
+
+---
 
 ### Runtime
 
-| Value | Description |
-|---|---|
-| `api` | Calls Claude via the Anthropic API. Text input/output only. |
-| `claude_code` | Runs Claude Code CLI as a subprocess. Can read/write files, execute code, use MCP tools. |
+| Value | Description | Use Case |
+|---|---|---|
+| `api` | Runs `claude -p <prompt> --print`. Text-only, no tool access. | Planning, reviewing, summarizing, analysis |
+| `claude_code` | Runs Claude Code CLI with full tool access. Can read/write files, execute shell commands, use MCP tools. | Implementation, testing, file manipulation |
+
+Both runtimes invoke the `claude` CLI as a subprocess. The difference is that `api` mode disables tool use, while `claude_code` mode enables full Claude Code capabilities.
+
+**model values** — Any valid Claude model ID:
+- `claude-opus-4-6` — Most capable, best for complex reasoning
+- `claude-sonnet-4-20250514` — Balanced speed and quality (recommended default)
+- `claude-haiku-4-5-20251001` — Fastest, best for simple tasks
+
+---
 
 ### Handoff
 
+Handoffs define how tasks flow from one agent to the next.
+
 ```yaml
 handoffs:
-  - to: reviewer
-    task: review_spec
-    condition: always          # always | on_approve | on_reject | on_pass | expression
-    payload: "{{ output }}"    # Jinja2 template
+  - to: reviewer             # (required) Target agent ID
+    task: review_spec        # (optional) Task label, default: ""
+    condition: always        # (optional) When to trigger, default: "always"
+    payload: "{{ output }}"  # (optional) Data to pass, default: "{{ output }}"
 ```
 
-**Condition options:**
-- `always` — Always hand off
-- `on_approve` — Only when gate approves
-- `on_reject` — Only when gate rejects
-- `on_pass` — When there is no gate, or when approved
-- Expression — `"severity == critical"`, `"severity in [major, minor]"`
+#### Handoff Fields
 
-**Payload template variables:**
-- `{{ output }}` — Current agent's output
-- `{{ input }}` — Current agent's input
-- `{{ reject_reason }}` — Gate rejection reason
-- `{{ gate_result }}` — `approved` or `rejected`
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `to` | `string` | **Yes** | — | Target agent `id`. Must exist in the agents list. |
+| `task` | `string` | No | `""` | Label describing what the next agent should do. |
+| `condition` | `string` | No | `"always"` | When this handoff triggers. See conditions below. |
+| `payload` | `string` | No | `"{{ output }}"` | Jinja2 template for data passed to the next agent. |
+
+#### Condition Values
+
+| Condition | Triggers When |
+|---|---|
+| `always` | Always triggers (no gate needed) |
+| `on_approve` | Gate decision is `approved` |
+| `on_reject` | Gate decision is `rejected` |
+| `on_pass` | No gate exists, or gate approved |
+| Custom expression | Expression evaluates to true (e.g. `"severity == critical"`, `"severity in [major, minor]"`) |
+
+#### Payload Template Variables
+
+| Variable | Description |
+|---|---|
+| `{{ output }}` | Current agent's output text |
+| `{{ input }}` | Current agent's input text |
+| `{{ reject_reason }}` | Gate rejection reason (empty if approved) |
+| `{{ gate_result }}` | Gate decision: `"approved"` or `"rejected"` |
+
+**Example — Passing reject reason back to planner:**
+```yaml
+handoffs:
+  - to: planner
+    task: revise_spec
+    condition: on_reject
+    payload: "REJECTED: {{ reject_reason }}\nOriginal plan: {{ output }}"
+```
+
+---
 
 ### Gate
 
+Gates evaluate an agent's output before handoff routing occurs. If a gate exists, handoff conditions like `on_approve` / `on_reject` are resolved based on the gate result.
+
 ```yaml
 gate:
-  type: llm              # llm | human
-  prompt: "Criteria..."  # Additional prompt for LLM gate
-  model: claude-sonnet-4-20250514
+  type: llm                          # (required) llm | human
+  prompt: "Is this plan actionable?" # (optional) Extra evaluation criteria for LLM gate
+  model: claude-sonnet-4-20250514    # (optional) Model for LLM gate evaluation
 ```
 
-| Type | Description |
+#### Gate Fields
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `type` | `"llm"` \| `"human"` | No | `"llm"` | Gate type. |
+| `prompt` | `string` | No | `""` | Additional evaluation criteria. Jinja2 template (variables: `{{ output }}`, `{{ input }}`). |
+| `model` | `string` | No | `claude-sonnet-4-20250514` | Model used for LLM gate evaluation. |
+
+#### Gate Types
+
+| Type | Behavior |
 |---|---|
-| `llm` | Claude automatically evaluates output quality. Returns `approved`/`rejected` as JSON. |
-| `human` | Pipeline pauses until a human approves/rejects via CLI or web UI. |
+| `llm` | Claude CLI automatically evaluates the output and returns `{"decision": "approved"/"rejected", "reason": "..."}`. Pipeline continues immediately. |
+| `human` | Pipeline **pauses** and waits for manual approval. Resume with `agent-queue approve <task-id>` or `agent-queue reject <task-id> -r "reason"`. |
+
+---
 
 ### MCP Servers
 
+Attach [Model Context Protocol](https://modelcontextprotocol.io/) servers to give agents real-world capabilities.
+
 ```yaml
 mcp:
-  - server: github             # Simple format — name only
+  # Simple format — auto-resolves to npx -y @modelcontextprotocol/server-{name}
+  - server: github
+
+  # With arguments
   - server: filesystem
-    args: ["/path/to/dir"]     # Additional arguments
-  - server: custom             # Custom server
+    args: ["/path/to/dir"]
+
+  # Custom server with full configuration
+  - server: custom-db
     command: node
-    args: ["./my-server.js"]
+    args: ["./my-mcp-server.js"]
     env:
-      API_KEY: "..."
+      DATABASE_URL: "postgres://..."
+      API_KEY: "sk-..."
 ```
 
-When only `server` name is provided, it auto-resolves to:
-`npx -y @modelcontextprotocol/server-{name}`
+#### MCP Server Fields
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `server` | `string` | **Yes** | — | Server name. Used as identifier and for auto-resolution. |
+| `command` | `string` | No | `"npx"` | Command to launch the server. |
+| `args` | `list[string]` | No | `[]` | Arguments passed to the command. |
+| `env` | `dict[string, string]` | No | `null` | Environment variables for the server process. |
+
+**Auto-resolution:** When only `server` name is provided (no `command`), it resolves to:
+```
+npx -y @modelcontextprotocol/server-{name} [args...]
+```
+
+**Common MCP servers:**
+
+| Server Name | Capabilities |
+|---|---|
+| `github` | Read/write repos, create PRs, manage issues |
+| `filesystem` | Read/write local files and directories |
+| `postgres` | Execute SQL queries against PostgreSQL |
+| `slack` | Send messages, read channels |
+| `browsertools` | Browser automation, E2E testing |
+| `sentry` | Error tracking and lookup |
+
+---
+
+### claude_code_flags
+
+Extra CLI flags passed directly to the `claude` command. Only applies when `runtime: claude_code`.
+
+```yaml
+claude_code_flags:
+  - "--allowedTools"
+  - "Edit,Write,Bash,Read"
+```
+
+This is useful for restricting which tools an agent can use, or passing other Claude Code CLI options.
+
+---
+
+### Complete Example
+
+```yaml
+# .agent-queue/agents.yaml
+agents:
+  - id: planner
+    name: Planning Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a software planner.
+      Analyze the requirements and write a detailed specification.
+      Requirements: {{ input }}
+    handoffs:
+      - to: reviewer
+        task: review_spec
+        condition: always
+        payload: "{{ output }}"
+
+  - id: reviewer
+    name: Review Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Review this specification. Decide approve or reject.
+      If rejecting, always include the reason.
+      Spec: {{ input }}
+    gate:
+      type: llm
+      prompt: "Is this spec clear, complete, and ready for implementation?"
+      model: claude-sonnet-4-20250514
+    handoffs:
+      - to: developer
+        task: implement
+        condition: on_approve
+        payload: "{{ output }}"
+      - to: planner
+        task: revise_spec
+        condition: on_reject
+        payload: "REJECTED: {{ reject_reason }}\nOriginal: {{ output }}"
+
+  - id: developer
+    name: Development Agent
+    runtime: claude_code
+    model: claude-sonnet-4-20250514
+    mcp:
+      - server: filesystem
+        args: ["/path/to/project"]
+    system_prompt: |
+      Implement the approved specification.
+      Plan: {{ input }}
+    claude_code_flags:
+      - "--allowedTools"
+      - "Edit,Write,Bash,Read"
+    handoffs:
+      - to: qa
+        task: test_implementation
+        condition: always
+
+  - id: qa
+    name: QA Agent
+    runtime: claude_code
+    mcp:
+      - server: browsertools
+    gate:
+      type: human
+    handoffs:
+      - to: planner
+        task: rethink_spec
+        condition: "severity == critical"
+      - to: developer
+        task: fix_bugs
+        condition: "severity in [major, minor]"
+```
 
 ## Pipelines for Any Domain
 
