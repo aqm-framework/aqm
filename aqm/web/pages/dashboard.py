@@ -12,6 +12,7 @@ def render_dashboard(
     agents: dict[str, AgentDefinition],
     pipelines: list[str] | None = None,
     current_pipeline: str = "default",
+    agent_error: str | None = None,
 ) -> str:
     total = len(tasks)
     completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
@@ -34,8 +35,22 @@ def render_dashboard(
   <span style="font-size:12px;opacity:.6;">{len(pipelines)} pipeline(s)</span>
 </div>"""
 
+    error_banner = ""
+    if agent_error:
+        error_banner = (
+            f'<div class="card" style="background:var(--surface2);border-left:4px solid var(--orange);'
+            f'padding:12px 16px;margin-bottom:16px;">'
+            f'<strong style="color:var(--orange);">⚠ Pipeline configuration error</strong>'
+            f'<p style="margin:6px 0 0;font-size:13px;opacity:.85;">{esc(agent_error)}</p>'
+            f'<p style="margin:6px 0 0;font-size:12px;opacity:.6;">'
+            f'Set required parameters via <code>--param key=value</code> on <code>aqm run</code>, '
+            f'or create a <code>.aqm/params.yaml</code> file.</p>'
+            f'</div>'
+        )
+
     stats = f"""\
 {pipeline_selector}
+{error_banner}
 <div class="stats">
   <div class="stat-card"><div class="value">{total}</div><div class="label">Total</div></div>
   <div class="stat-card blue"><div class="value">{running}</div><div class="label">Running</div></div>

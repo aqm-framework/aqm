@@ -34,11 +34,20 @@ def create_app(project_root: Path) -> FastAPI:
     def _get_queue() -> SQLiteQueue:
         return SQLiteQueue(db_path)
 
-    def _get_agents(pipeline: str | None = None):
-        path = get_agents_yaml_path(project_root, pipeline)
-        if path.exists():
-            return load_agents(path)
-        return {}
+    def _get_agents(pipeline: str | None = None) -> tuple[dict, str | None]:
+        """Load agents, returning (agents_dict, error_message).
+
+        If required params are missing or YAML is invalid, returns
+        an empty dict with a user-friendly error message instead of
+        letting the exception propagate as a 500.
+        """
+        try:
+            path = get_agents_yaml_path(project_root, pipeline)
+            if path.exists():
+                return load_agents(path), None
+            return {}, None
+        except (ValueError, FileNotFoundError) as exc:
+            return {}, str(exc)
 
     # ── Startup: recover stale tasks ──────────────────────────────────
 
@@ -68,8 +77,12 @@ def create_app(project_root: Path) -> FastAPI:
             tasks = queue.list_tasks()
             pipelines = list_pipelines(project_root)
             current = pipeline or get_default_pipeline(project_root) or "default"
-            agents = _get_agents(current)
-            return render_dashboard(tasks, agents, pipelines=pipelines, current_pipeline=current)
+            agents, agent_error = _get_agents(current)
+            return render_dashboard(
+                tasks, agents,
+                pipelines=pipelines, current_pipeline=current,
+                agent_error=agent_error,
+            )
         finally:
             queue.close()
 
@@ -78,8 +91,11 @@ def create_app(project_root: Path) -> FastAPI:
         from aqm.web.pages.agents import render_agents
         pipelines = list_pipelines(project_root)
         current = pipeline or get_default_pipeline(project_root) or "default"
-        agents = _get_agents(current)
-        return render_agents(agents, pipelines=pipelines, current_pipeline=current)
+        agents, agent_error = _get_agents(current)
+        return render_agents(
+            agents, pipelines=pipelines, current_pipeline=current,
+            agent_error=agent_error,
+        )
 
     @app.get("/tasks/{task_id}", response_class=HTMLResponse)
     async def task_detail(task_id: str):
@@ -89,7 +105,7 @@ def create_app(project_root: Path) -> FastAPI:
             task = queue.get(task_id)
             if task is None:
                 raise HTTPException(status_code=404, detail="Task not found")
-            agents = _get_agents()
+            agents, _ = _get_agents()
             tasks_dir = get_tasks_dir(project_root)
             ctx_file = ContextFile(tasks_dir / task_id)
             context_md = ctx_file.read()

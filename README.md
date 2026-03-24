@@ -207,7 +207,7 @@ The wizard offers three setup methods:
 |--------|-------------|
 | **[1] AI-generate** | Describe your desired pipeline in plain language, select a Claude model (Opus 4.6 default), and Claude generates the YAML — with interactive Q&A, project analysis, and auto-validation. |
 | **[2] Default template** | Start with a basic planner→executor pipeline. Edit `agents.yaml` to customize. |
-| **[3] Pull from registry** | Browse and install pipelines from bundled examples or local registry. |
+| **[3] Pull from registry** | Browse and install pipelines from GitHub registry or local registry. |
 
 **AI-generate example:**
 
@@ -518,7 +518,7 @@ Additional web-only features:
 
 Pull a pipeline from the registry and install it into `.aqm/agents.yaml`.
 
-Searches in order: **GitHub registry** → local registry → bundled examples.
+Searches in order: **GitHub registry** → local registry.
 
 ```bash
 # Pull from GitHub registry (default)
@@ -1144,7 +1144,7 @@ In this example, the QA agent analyzes test results and autonomously decides:
 | [YAML Specification](docs/spec.md) | Independent `agents.yaml` format spec (`apiVersion: aqm/v0.1`), field reference, processing order, versioning policy |
 | [JSON Schema](schema/agents-schema.json) | Machine-readable schema for validation and IDE autocomplete |
 | [Competitive Analysis](docs/competitive-analysis.md) | Positioning vs. LangGraph, CrewAI, AutoGen, OpenSWE, Copilot, Vertex AI |
-| [Seed Pipelines](examples/README.md) | 10 ready-to-use pipelines with feature matrix |
+| [Seed Pipelines](https://github.com/aqm-framework/registry) | 10 ready-to-use pipelines in the registry |
 | [Contributing](CONTRIBUTING.md) | How to contribute pipelines (equal to code!), submission template, review process |
 
 Validate your pipeline against the spec:
@@ -1186,7 +1186,6 @@ aqm/
 │   ├── concepts.md           # Core concepts guide
 │   ├── spec.md               # YAML format specification
 │   └── competitive-analysis.md
-├── examples/                  # 10 seed pipelines
 └── tests/
 ```
 
