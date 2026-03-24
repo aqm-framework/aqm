@@ -754,10 +754,36 @@ def list_tasks(status_filter: str | None) -> None:
         console.print("[dim]No tasks found.[/]")
         return
 
+    status_colors = {
+        "pending": "dim",
+        "in_progress": "blue",
+        "completed": "green",
+        "failed": "red",
+        "awaiting_gate": "yellow",
+        "approved": "green",
+        "rejected": "red",
+        "cancelled": "dim",
+        "stalled": "yellow",
+    }
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("ID", style="bold")
+    table.add_column("Status")
+    table.add_column("Agent")
+    table.add_column("Stages", justify="right")
+    table.add_column("Description")
+
     for t in tasks:
-        console.print(
-            f"  {t.id}  [{t.status.value:15}]  {t.description[:50]}"
+        color = status_colors.get(t.status.value, "dim")
+        table.add_row(
+            t.id,
+            f"[{color}]{t.status.value}[/{color}]",
+            t.current_agent_id or "-",
+            str(len(t.stages)),
+            t.description[:60],
         )
+
+    console.print(table)
 
 
 # ── approve / reject ────────────────────────────────────────────────────
