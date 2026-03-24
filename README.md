@@ -1143,7 +1143,6 @@ In this example, the QA agent analyzes test results and autonomously decides:
 | [Core Concepts](docs/concepts.md) | Task, Queue, Handoff, Gate, Condition, Context, Pipeline — with LangGraph/CrewAI comparison tables |
 | [YAML Specification](docs/spec.md) | Independent `agents.yaml` format spec (`apiVersion: aqm/v0.1`), field reference, processing order, versioning policy |
 | [JSON Schema](schema/agents-schema.json) | Machine-readable schema for validation and IDE autocomplete |
-| [Competitive Analysis](docs/competitive-analysis.md) | Positioning vs. LangGraph, CrewAI, AutoGen, OpenSWE, Copilot, Vertex AI |
 | [Seed Pipelines](https://github.com/aqm-framework/registry) | 10 ready-to-use pipelines in the registry |
 | [Contributing](CONTRIBUTING.md) | How to contribute pipelines (equal to code!), submission template, review process |
 
