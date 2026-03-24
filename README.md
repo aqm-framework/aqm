@@ -68,6 +68,11 @@ pip install aqm
 cd my-project
 aqm init
 
+# Choose your setup method:
+#   [1] Create default template — basic planner→executor pipeline
+#   [2] Pull from registry — install a community pipeline
+#   [3] AI-generate — describe what you want, Claude builds the YAML
+
 # Run a pipeline
 aqm run "Add JWT authentication to login"
 
@@ -189,11 +194,74 @@ Attach MCP servers to any agent so it can **act**, not just generate text.
 
 ### `aqm init`
 
-Initialize `.aqm/` in the current project directory.
+Initialize `.aqm/` in the current project directory with an interactive setup wizard.
 
 ```bash
 aqm init
 aqm init --path /path/to/project
+```
+
+The wizard offers three setup methods:
+
+| Method | Description |
+|--------|-------------|
+| **[1] Default template** | Start with a basic planner→executor pipeline. Edit `agents.yaml` to customize. |
+| **[2] Pull from registry** | Browse and install pipelines from bundled examples or local registry. |
+| **[3] AI-generate** | Describe your desired pipeline in plain language and Claude generates the YAML — always referencing the full [YAML spec](docs/spec.md) for correctness. **If run inside an existing project, Claude first analyzes the tech stack** (languages, frameworks, test tools, etc.) and tailors the pipeline accordingly. |
+
+**AI-generate example:**
+
+```bash
+$ cd my-react-app
+$ aqm init
+
+How would you like to set up your pipeline?
+
+  [1] Create default template
+  [2] Pull from registry
+  [3] AI-generate from description
+
+  Choice: 3
+
+  Analyzing project at /Users/you/my-react-app...
+
+  Project analysis:
+  - Language: TypeScript
+  - Framework: React 18 + Next.js 14
+  - Package manager: pnpm
+  - Testing: Vitest + Playwright
+  - CI/CD: GitHub Actions
+  - Styling: Tailwind CSS
+
+  Pipeline description: Feature development pipeline with code review
+  and automated testing
+
+  Generating agents.yaml with Claude (project analysis + YAML spec reference)...
+
+  Generated agents.yaml:
+  ─────────────────────────────────────
+  apiVersion: aqm/v0.1
+  agents:
+    - id: planner
+      system_prompt: |
+        You are a senior Next.js/React architect...
+      ...
+    - id: developer
+      runtime: claude_code
+      mcp:
+        - github
+      ...
+    - id: qa
+      runtime: claude_code
+      system_prompt: |
+        Run Vitest unit tests and Playwright e2e tests...
+      ...
+  ─────────────────────────────────────
+
+  [1] Use this pipeline  [2] Regenerate  [3] Use default template
+  Choice: 1
+
+✓ .aqm/ initialized with AI-generated pipeline
 ```
 
 Creates:
