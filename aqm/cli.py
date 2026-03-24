@@ -603,6 +603,8 @@ def status(task_id: str | None) -> None:
                 "failed": "red",
                 "awaiting_gate": "yellow",
                 "in_progress": "blue",
+                "cancelled": "yellow",
+                "stalled": "yellow",
             }.get(t.status.value, "dim")
 
             table.add_row(
@@ -692,6 +694,63 @@ def reject(task_id: str, reason: str) -> None:
         console.print(f"[yellow]✗ Rejected[/] {task_id} → {result.status.value}")
     except ValueError as e:
         console.print(f"[red]Error:[/] {e}")
+
+
+# ── cancel ─────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id")
+@click.option("-r", "--reason", default="", help="Cancellation reason")
+def cancel(task_id: str, reason: str) -> None:
+    """Cancel a running or pending task.
+
+    For in_progress tasks, signals the pipeline to stop at the next stage boundary.
+    Any code changes made by completed stages are preserved (use git to review/revert).
+    """
+    root = _require_project()
+    queue = _get_queue(root)
+
+    task = queue.get(task_id)
+    if not task:
+        console.print(f"[red]Error:[/] Task '{task_id}' not found.")
+        return
+
+    if task.status in (TaskStatus.completed, TaskStatus.failed):
+        console.print(
+            f"[yellow]Task {task_id} is already {task.status.value}.[/]"
+        )
+        return
+
+    from aqm.core.task import TaskStatus as TS
+
+    if task.status == TS("cancelled"):
+        console.print(f"[yellow]Task {task_id} is already cancelled.[/]")
+        return
+
+    # For in_progress tasks, signal the pipeline to stop
+    if task.status == TaskStatus.in_progress:
+        from aqm.core.pipeline import cancel_task
+        cancel_task(task_id)
+        console.print(
+            f"[yellow]⏹ Cancellation requested[/] for {task_id}\n"
+            f"  Pipeline will stop at the next stage boundary.\n"
+            f"  Completed stages are preserved — use [bold]git diff[/] to review changes."
+        )
+        return
+
+    # For pending/awaiting_gate, cancel immediately
+    task.status = TS("cancelled")
+    task.metadata["cancel_reason"] = reason or "Cancelled by user"
+    task.touch()
+    queue.update(task)
+
+    console.print(f"[yellow]⏹ Cancelled[/] {task_id}")
+    if task.stages:
+        console.print(
+            f"  {len(task.stages)} stage(s) completed before cancellation.\n"
+            f"  Use [bold]git diff[/] to review any code changes."
+        )
 
 
 # ── agents ──────────────────────────────────────────────────────────────

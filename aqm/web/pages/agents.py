@@ -82,13 +82,15 @@ GRAPH_JS = """\
   if (!data.nodes.length) return;
 
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir:'TB', nodesep:60, ranksep:80, marginx:40, marginy:40 });
+  g.setGraph({ rankdir:'TB', nodesep:80, ranksep:100, marginx:40, marginy:40 });
   g.setDefaultEdgeLabel(() => ({}));
 
-  // Add nodes
+  // Add nodes — calculate height based on content
   data.nodes.forEach(n => {
-    const h = 60 + (n.mcp.length > 0 ? 20 : 0) + (n.gate ? 20 : 0);
-    g.setNode(n.id, { label:n.name, width:200, height:h, data:n });
+    let h = 70;  // base: title + id line + padding
+    if (n.gate) h += 28;
+    if (n.mcp.length > 0) h += 24 + Math.ceil(n.mcp.length / 3) * 24;
+    g.setNode(n.id, { label:n.name, width:220, height:h, data:n });
   });
 
   // Add edges
@@ -171,7 +173,8 @@ GRAPH_JS = """\
 
     const fo = container.append('foreignObject')
       .attr('x', x).attr('y', y)
-      .attr('width', node.width).attr('height', node.height);
+      .attr('width', node.width).attr('height', node.height)
+      .attr('style', 'overflow:visible');
 
     let html = `<div class="agent-node-html">`;
     html += `<div class="agent-title">${n.name}</div>`;

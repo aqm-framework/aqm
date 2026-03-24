@@ -33,6 +33,24 @@ def create_app(project_root: Path) -> FastAPI:
             return load_agents(agents_yaml_path)
         return {}
 
+    # ── Startup: recover stale tasks ──────────────────────────────────
+
+    @app.on_event("startup")
+    async def _recover_stale():
+        import logging
+        log = logging.getLogger("aqm.web")
+        queue = _get_queue()
+        try:
+            stalled = queue.recover_stale_tasks()
+            if stalled:
+                log.warning(
+                    "Recovered %d stale task(s): %s",
+                    len(stalled),
+                    ", ".join(t.id for t in stalled),
+                )
+        finally:
+            queue.close()
+
     # ── HTML Pages ────────────────────────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)

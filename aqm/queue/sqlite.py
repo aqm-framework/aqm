@@ -136,5 +136,23 @@ class SQLiteQueue(AbstractQueue):
         )
         return [row[0] for row in cursor.fetchall()]
 
+    def recover_stale_tasks(self) -> list[Task]:
+        """Mark in_progress tasks as stalled (server restart recovery).
+
+        Returns list of tasks that were recovered.
+        """
+        cursor = self._conn.execute(
+            "SELECT data FROM tasks WHERE status = ?",
+            (TaskStatus.in_progress.value,),
+        )
+        stalled = []
+        for row in cursor.fetchall():
+            task = Task.model_validate_json(row[0])
+            task.status = TaskStatus.stalled
+            task.metadata["stall_reason"] = "Server restarted while task was running"
+            self.update(task)
+            stalled.append(task)
+        return stalled
+
     def close(self) -> None:
         self._conn.close()

@@ -87,6 +87,8 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
                 actions += f' <button class="btn btn-sm" onclick="showFixForm(\'{esc(t.id)}\')">Fix</button>'
             if t.status == TaskStatus.awaiting_gate:
                 actions += f' <a href="/tasks/{esc(t.id)}" class="btn btn-sm btn-green">Approve</a>'
+            if t.status in (TaskStatus.pending, TaskStatus.in_progress, TaskStatus.awaiting_gate):
+                actions += f' <button class="btn btn-sm btn-red" onclick="cancelTask(\'{esc(t.id)}\')">Cancel</button>'
 
             row_list.append(
                 f'<tr>'
@@ -125,6 +127,14 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
   </div>
 </div>
 <script>
+async function cancelTask(taskId) {
+  if (!confirm('Cancel task ' + taskId + '?')) return;
+  try {
+    await apiFetch('/api/tasks/' + taskId + '/cancel', {method:'POST', body:'{}'});
+    showToast('Task cancelled');
+    setTimeout(() => location.reload(), 600);
+  } catch(e) {}
+}
 function showFixForm(taskId) {
   document.getElementById('fixParentId').value = taskId;
   document.getElementById('fixTaskId').textContent = taskId;
