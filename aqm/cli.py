@@ -539,19 +539,6 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
         console.print(f"[dim]Status: {result.status.value}[/] {result.id}")
 
 
-# ── task (alias for run, backward compat) ───────────────────────────────
-
-
-@cli.command(hidden=True)
-@click.argument("input_text")
-@click.option("--agent", default=None)
-@click.option("--param", "-p", "params", multiple=True)
-@click.pass_context
-def task(ctx, input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
-    """Create and run a task (alias for run)."""
-    ctx.invoke(run, input_text=input_text, agent=agent, params=params)
-
-
 # ── status ──────────────────────────────────────────────────────────────
 
 
