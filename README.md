@@ -283,13 +283,37 @@ aqm run "Build a login feature"
 # Specify starting agent
 aqm run "Fix the payment bug" --agent developer
 
+# With priority
+aqm run --priority high "Fix critical security issue"
+
+# Run in parallel (don't wait for other tasks to finish)
+aqm run --parallel "Add documentation"
+
 # With verbose logging
 aqm -v run "Add user registration"
 ```
 
+**Execution modes:**
+
+| Mode | Behavior |
+|------|----------|
+| **Sequential** (default) | Waits for running tasks to finish before starting |
+| **Parallel** (`--parallel`) | Starts immediately alongside other running tasks |
+
+> **Warning:** In parallel mode, multiple agents may modify the same files simultaneously. The last write wins — use `git diff` to review changes if conflicts occur.
+
+**Priority levels:**
+
+| Priority | Description |
+|----------|-------------|
+| `critical` | Runs before all other pending tasks |
+| `high` | Higher priority than normal |
+| `normal` | Default priority |
+| `low` | Runs after higher-priority tasks |
+
 Output:
 ```
-✓ Task created: T-A3F2B1
+✓ Task created: T-A3F2B1 [high]
   Starting agent: planner
 
   stage 1 planner → Feature specification written...
@@ -427,6 +451,17 @@ aqm cancel T-A3F2B1 -r "Requirements changed"
 ```
 
 For `in_progress` tasks, the pipeline stops at the next stage boundary. Completed stages are preserved — use `git diff` to review any code changes made before cancellation.
+
+### `aqm priority`
+
+Change the priority of an existing task.
+
+```bash
+aqm priority T-A3F2B1 critical
+aqm priority T-A3F2B1 low
+```
+
+Higher-priority tasks are executed first when the queue has multiple pending tasks.
 
 ### `aqm serve`
 
