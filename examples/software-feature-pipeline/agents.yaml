@@ -1,0 +1,127 @@
+# =============================================================================
+# Software Feature Development Pipeline
+# =============================================================================
+# Flow: plan -> review (LLM gate) -> implement -> QA (human gate)
+#
+# Differentiators used:
+#   - approve/reject gate (LLM + human)
+#   - Reverse feedback loops (reject -> back to planner or developer)
+#   - File-based context.md accumulation
+#   - Declarative MCP server connections (github, filesystem)
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "Add user authentication with OAuth2"
+# =============================================================================
+
+params:
+  project_language: "TypeScript"
+  test_framework: "vitest"
+  review_strictness: "high"
+  target_branch: "main"
+
+agents:
+  # ── Stage 1: Planning ──────────────────────────────────────────────────
+  # Reads the feature request and produces a detailed implementation spec.
+  - id: planner
+    name: Planning Agent
+    model: claude-sonnet-4-20250514
+    runtime: api
+    mcp:
+      - server: github
+      - server: filesystem
+    system_prompt: |
+      You are a senior software planner working on a ${{ params.project_language }} project.
+
+      Analyze the user's requirements and write a detailed feature specification.
+
+      ## Items to document
+      1. Feature summary
+      2. Technical requirements (language: ${{ params.project_language }})
+      3. Security requirements
+      4. Test scenarios (using ${{ params.test_framework }})
+      5. Estimated complexity (S / M / L / XL)
+
+      Requirements: {{ input }}
+    handoffs:
+      - to: reviewer
+        task: review_spec
+        condition: always
+
+  # ── Stage 2: Review ────────────────────────────────────────────────────
+  # LLM gate evaluates the spec. On reject, sends it BACK to planner
+  # with specific feedback (reverse feedback loop).
+  - id: reviewer
+    name: Review Agent
+    model: claude-sonnet-4-20250514
+    runtime: api
+    system_prompt: |
+      Review the feature specification for a ${{ params.project_language }} project.
+      Strictness level: ${{ params.review_strictness }}.
+
+      Evaluate completeness, security implications, and feasibility.
+      Flag any missing edge cases or unclear requirements.
+
+      Specification: {{ input }}
+    gate:
+      type: llm
+      prompt: "Evaluate whether this specification is complete and ready for implementation. Strictness: ${{ params.review_strictness }}."
+    handoffs:
+      # Approved -> move forward to development
+      - to: developer
+        task: implement
+        condition: on_approve
+        payload: "{{ output }}"
+      # Rejected -> reverse feedback loop back to planner
+      - to: planner
+        task: revise_spec
+        condition: on_reject
+        payload: "{{ output }}\n\nREJECT_REASON: {{ reject_reason }}\nPlease revise the specification to address the above feedback."
+
+  # ── Stage 3: Implementation ────────────────────────────────────────────
+  # Uses Claude Code runtime to actually write code.
+  - id: developer
+    name: Development Agent
+    runtime: claude_code
+    mcp:
+      - server: github
+      - server: filesystem
+    system_prompt: |
+      Write code based on the approved specification.
+      Language: ${{ params.project_language }}
+      Target branch: ${{ params.target_branch }}
+
+      Follow the existing project structure and conventions.
+      Include unit tests using ${{ params.test_framework }}.
+
+      Specification: {{ input }}
+    claude_code_flags:
+      - "--allowedTools"
+      - "Edit,Write,Bash,Read"
+    handoffs:
+      - to: qa
+        task: test_implementation
+        condition: always
+
+  # ── Stage 4: QA ────────────────────────────────────────────────────────
+  # Human gate: a team member reviews the implementation before merge.
+  # On reject, sends it BACK to developer (reverse feedback loop).
+  - id: qa
+    name: QA Agent
+    runtime: claude_code
+    mcp:
+      - server: filesystem
+    system_prompt: |
+      Verify the implemented code for the ${{ params.project_language }} project.
+      Run the test suite using ${{ params.test_framework }}.
+      Check code quality, test coverage, and adherence to the spec.
+
+      Implementation result: {{ input }}
+    gate:
+      type: human
+    handoffs:
+      # Rejected -> reverse feedback loop back to developer
+      - to: developer
+        task: fix_bugs
+        condition: on_reject
+        payload: "{{ output }}\n\nBUGS_FOUND: {{ reject_reason }}\nPlease fix the issues listed above."

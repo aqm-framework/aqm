@@ -1,0 +1,145 @@
+# =============================================================================
+# New Employee Onboarding Pipeline
+# =============================================================================
+# Flow: account_setup -> resource_assigner -> checklist_creator (fan-out to
+#       it_setup, hr_setup) -> follow_up (human gate)
+#
+# Differentiators used:
+#   - Fan-out parallel branches (IT + HR setup in parallel)
+#   - approve/reject gate (human gate for manager sign-off)
+#   - File-based context.md accumulation (onboarding record)
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "New hire: Jane Smith, Senior Engineer, Platform team, starts 2026-04-01"
+# =============================================================================
+
+params:
+  company_name: "Acme Corp"
+  department: "Engineering"
+  default_tools: "GitHub, Slack, Jira, Notion, AWS"
+  onboarding_buddy_program: "true"
+  probation_days: "90"
+
+agents:
+  # ── Stage 1: Account Setup ─────────────────────────────────────────────
+  # Parses new hire info and generates account provisioning instructions.
+  - id: account_setup
+    name: Account Provisioner
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are the onboarding coordinator at ${{ params.company_name }}.
+
+      Parse the new hire information and create account provisioning instructions:
+      1. Extract: name, role, team, start date
+      2. Generate email address (firstname.lastname@company.com)
+      3. List all tools requiring accounts: ${{ params.default_tools }}
+      4. Determine access level based on role and ${{ params.department }}
+      5. Flag any special access requirements
+
+      New hire details: {{ input }}
+    handoffs:
+      - to: resource_assigner
+        task: assign_resources
+        condition: always
+
+  # ── Stage 2: Resource Assignment ───────────────────────────────────────
+  # Assigns hardware, software licenses, and team resources.
+  - id: resource_assigner
+    name: Resource Assigner
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Assign resources for the new ${{ params.department }} team member at ${{ params.company_name }}.
+
+      Determine:
+      1. Hardware: laptop spec based on role
+      2. Software licenses needed
+      3. Meeting room access and building badge
+      4. Team-specific resources (repos, channels, boards)
+      5. Onboarding buddy assignment (program enabled: ${{ params.onboarding_buddy_program }})
+
+      Account setup details: {{ input }}
+    handoffs:
+      # Fan-out: IT setup and HR setup happen in parallel
+      - to: "it_setup, hr_setup"
+        task: parallel_setup
+        condition: always
+
+  # ── Stage 3a: IT Setup (parallel) ──────────────────────────────────────
+  - id: it_setup
+    name: IT Setup Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are an IT operations specialist at ${{ params.company_name }}.
+
+      Create the technical onboarding checklist:
+      1. Provision accounts for: ${{ params.default_tools }}
+      2. Configure SSO and MFA
+      3. Set up development environment
+      4. Grant repository access
+      5. Configure VPN and network access
+      6. Schedule IT orientation session
+
+      Format as a checklist with status markers: [ ] pending.
+
+      Resource assignments: {{ input }}
+    handoffs:
+      - to: follow_up
+        task: collect_it_status
+        condition: always
+
+  # ── Stage 3b: HR Setup (parallel) ──────────────────────────────────────
+  - id: hr_setup
+    name: HR Setup Agent
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are an HR operations specialist at ${{ params.company_name }}.
+
+      Create the HR onboarding checklist:
+      1. Employment contract and offer letter
+      2. Benefits enrollment
+      3. Payroll setup
+      4. Emergency contact collection
+      5. Policy acknowledgments (handbook, security, IP)
+      6. Probation period tracking (${{ params.probation_days }} days)
+      7. First-week schedule with team introductions
+      8. 30-60-90 day goals template
+
+      Format as a checklist with status markers: [ ] pending.
+
+      Resource assignments: {{ input }}
+    handoffs:
+      - to: follow_up
+        task: collect_hr_status
+        condition: always
+
+  # ── Stage 4: Follow Up & Manager Sign-off ──────────────────────────────
+  # Compiles everything from context.md and waits for manager approval.
+  - id: follow_up
+    name: Onboarding Follow-Up
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      Compile the complete onboarding package for the new hire at ${{ params.company_name }}.
+
+      Using all collected information from IT and HR setup, create:
+      1. Welcome email draft
+      2. Day 1 agenda
+      3. First week schedule
+      4. Combined checklist (IT + HR items)
+      5. Key contacts and escalation paths
+      6. 30-day follow-up reminders
+
+      Onboarding details: {{ input }}
+    gate:
+      type: human
+    handoffs:
+      # Rejected -> needs revision (back to resource assignment)
+      - to: resource_assigner
+        task: revise_onboarding
+        condition: on_reject
+        payload: "{{ output }}\n\nMANAGER_FEEDBACK: {{ reject_reason }}\nPlease adjust the onboarding plan."

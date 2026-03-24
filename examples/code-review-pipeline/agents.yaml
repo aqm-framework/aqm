@@ -1,0 +1,136 @@
+# =============================================================================
+# PR Code Review Pipeline (Fan-Out)
+# =============================================================================
+# Flow: diff_loader -> security, performance, style (parallel fan-out)
+#                   -> summarizer (collects all results)
+#
+# Differentiators used:
+#   - Fan-out parallel branches (comma-separated to: "security, performance, style")
+#   - Declarative MCP server connections (github)
+#   - File-based context.md accumulation (each reviewer adds to shared context)
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "https://github.com/org/repo/pull/42"
+# =============================================================================
+
+params:
+  repo: "org/repo"
+  language: "TypeScript"
+  security_focus: "OWASP Top 10"
+  performance_threshold: "O(n^2) or worse flagged"
+  style_guide: "Airbnb"
+
+agents:
+  # ── Stage 1: Load the Diff ─────────────────────────────────────────────
+  # Fetches PR details and diff via GitHub MCP, then fans out to 3 reviewers.
+  - id: diff_loader
+    name: Diff Loader
+    runtime: api
+    model: claude-sonnet-4-20250514
+    mcp:
+      - server: github
+    system_prompt: |
+      Fetch and summarize the pull request diff from ${{ params.repo }}.
+      List all changed files, additions, and deletions.
+      Provide the full diff content for downstream review agents.
+
+      PR reference: {{ input }}
+    handoffs:
+      # Fan-out: send the diff to all three review agents in parallel
+      - to: "security, performance, style"
+        task: review
+        condition: always
+
+  # ── Stage 2a: Security Review (parallel) ───────────────────────────────
+  - id: security
+    name: Security Reviewer
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a security-focused code reviewer for ${{ params.language }} code.
+      Focus area: ${{ params.security_focus }}.
+
+      Review the diff for:
+      - Injection vulnerabilities (SQL, XSS, command injection)
+      - Authentication and authorization issues
+      - Sensitive data exposure
+      - Insecure dependencies
+      - Hardcoded secrets or credentials
+
+      Rate each finding as CRITICAL / HIGH / MEDIUM / LOW.
+
+      Diff: {{ input }}
+    handoffs:
+      - to: summarizer
+        task: collect_security
+        condition: always
+
+  # ── Stage 2b: Performance Review (parallel) ────────────────────────────
+  - id: performance
+    name: Performance Reviewer
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a performance-focused code reviewer for ${{ params.language }} code.
+      Flag threshold: ${{ params.performance_threshold }}.
+
+      Review the diff for:
+      - Algorithmic complexity issues
+      - N+1 query patterns
+      - Memory leaks or excessive allocation
+      - Missing caching opportunities
+      - Unnecessary re-renders (if frontend)
+
+      Provide Big-O analysis where relevant.
+
+      Diff: {{ input }}
+    handoffs:
+      - to: summarizer
+        task: collect_performance
+        condition: always
+
+  # ── Stage 2c: Style Review (parallel) ──────────────────────────────────
+  - id: style
+    name: Style Reviewer
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a code style reviewer for ${{ params.language }} code.
+      Style guide: ${{ params.style_guide }}.
+
+      Review the diff for:
+      - Naming conventions
+      - Code organization and modularity
+      - Comment quality and documentation
+      - Consistent formatting
+      - Dead code or unused imports
+
+      Diff: {{ input }}
+    handoffs:
+      - to: summarizer
+        task: collect_style
+        condition: always
+
+  # ── Stage 3: Summary ───────────────────────────────────────────────────
+  # Reads the accumulated context.md (all three reviews) and produces
+  # a unified review summary.
+  - id: summarizer
+    name: Review Summarizer
+    runtime: api
+    model: claude-sonnet-4-20250514
+    mcp:
+      - server: github
+    system_prompt: |
+      You are a lead reviewer. Read the context file which contains results
+      from security, performance, and style reviews.
+
+      Produce a unified code review summary:
+      1. Overall verdict: APPROVE / REQUEST_CHANGES / COMMENT
+      2. Critical findings (must fix before merge)
+      3. Suggestions (nice to have)
+      4. Positive observations
+
+      Format as a GitHub PR review comment (markdown).
+
+      Review inputs: {{ input }}

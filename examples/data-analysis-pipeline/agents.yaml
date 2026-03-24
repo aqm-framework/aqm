@@ -1,7 +1,29 @@
-# Data analysis pipeline example
-# Collection → Cleaning → Analysis → Report
+# =============================================================================
+# Data Analysis Pipeline
+# =============================================================================
+# Flow: collect -> clean -> analyze -> report (LLM gate)
+#
+# Differentiators used:
+#   - approve/reject gate (LLM on report quality)
+#   - Reverse feedback loop (reject -> back to analyst)
+#   - Declarative MCP server connections (postgres, filesystem)
+#   - File-based context.md accumulation
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "Analyze Q4 sales trends by region and product category"
+# =============================================================================
+
+params:
+  database: "analytics_prod"
+  output_format: "executive summary with charts"
+  date_range: "last 90 days"
+  confidence_level: "95%"
+  report_audience: "C-suite executives"
 
 agents:
+  # ── Stage 1: Data Collection ───────────────────────────────────────────
+  # Connects to the database and gathers raw data matching the request.
   - id: collector
     name: Data Collection Agent
     runtime: claude_code
@@ -9,8 +31,14 @@ agents:
       - server: postgres
       - server: filesystem
     system_prompt: |
-      Collect data matching the request.
-      Retrieve data from DB queries or files.
+      You are a data engineer. Connect to the ${{ params.database }} database
+      and collect data matching the analysis request.
+
+      Parameters:
+      - Date range: ${{ params.date_range }}
+      - Export raw data to CSV in the task directory
+
+      Write SQL queries, execute them, and save results.
 
       Request: {{ input }}
     handoffs:
@@ -18,12 +46,24 @@ agents:
         task: clean_data
         condition: always
 
+  # ── Stage 2: Data Cleaning ─────────────────────────────────────────────
+  # Handles missing values, outliers, and format standardization.
   - id: cleaner
     name: Data Cleaning Agent
     runtime: claude_code
+    mcp:
+      - server: filesystem
     system_prompt: |
-      Clean the collected data.
-      Handle missing values, remove outliers, standardize formats.
+      You are a data quality specialist.
+
+      Clean the collected dataset:
+      1. Handle missing values (document the strategy: impute, drop, or flag)
+      2. Detect and handle outliers
+      3. Standardize formats (dates, currencies, categories)
+      4. Validate data types and ranges
+      5. Create a data quality report
+
+      Output a cleaned dataset and a quality summary.
 
       Raw data: {{ input }}
     handoffs:
@@ -31,13 +71,23 @@ agents:
         task: analyze
         condition: always
 
+  # ── Stage 3: Analysis ──────────────────────────────────────────────────
+  # Runs statistical analysis and identifies patterns.
   - id: analyst
     name: Analysis Agent
     runtime: api
     model: claude-sonnet-4-20250514
     system_prompt: |
-      Analyze the cleaned data.
-      Identify patterns, trends, and insights.
+      You are a senior data analyst.
+      Confidence level for statistical tests: ${{ params.confidence_level }}.
+
+      Analyze the cleaned data:
+      1. Descriptive statistics (mean, median, distribution)
+      2. Trend identification and time series patterns
+      3. Correlation analysis between key variables
+      4. Segmentation insights
+      5. Anomaly detection
+      6. Actionable recommendations
 
       Data: {{ input }}
     handoffs:
@@ -45,11 +95,32 @@ agents:
         task: generate_report
         condition: always
 
+  # ── Stage 4: Report Generation ─────────────────────────────────────────
+  # LLM gate ensures the report meets executive standards.
+  # Reject loops back to the analyst for deeper analysis.
   - id: reporter
     name: Report Agent
     runtime: api
+    model: claude-sonnet-4-20250514
     system_prompt: |
-      Write a report based on the analysis results.
-      Summarize at a level that executives can understand.
+      Write a data analysis report for ${{ params.report_audience }}.
+      Format: ${{ params.output_format }}.
+
+      Structure:
+      1. Executive summary (3-5 bullet points)
+      2. Key findings with supporting data
+      3. Visualizations (describe chart specs for each insight)
+      4. Recommendations ranked by impact
+      5. Methodology and limitations
+      6. Appendix: detailed tables
 
       Analysis results: {{ input }}
+    gate:
+      type: llm
+      prompt: "Is this report clear, actionable, and appropriate for ${{ params.report_audience }}? Does it contain sufficient data backing for each recommendation?"
+    handoffs:
+      # Rejected -> reverse feedback loop to analyst
+      - to: analyst
+        task: deepen_analysis
+        condition: on_reject
+        payload: "{{ output }}\n\nREPORT_FEEDBACK: {{ reject_reason }}\nPlease provide deeper analysis on the flagged areas."

@@ -1,0 +1,245 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://agent-queue.dev/schema/agents-schema.json",
+  "title": "agents.yaml",
+  "description": "Schema for agent-queue (aqm) pipeline configuration files. Defines agents, their handoffs, gates, MCP servers, and parameterization.",
+  "type": "object",
+  "required": ["apiVersion", "agents"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "aqm/v0.1",
+      "description": "API version identifier. Currently must be \"aqm/v0.1\"."
+    },
+    "params": {
+      "type": "object",
+      "description": "Parameter declarations for pipeline parameterization. Values are referenced via ${{ params.<name> }} syntax. Supports shorthand (just a default value) or full ParamDefinition objects.",
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/definitions/ParamDefinition" },
+          {
+            "type": ["string", "number", "boolean"],
+            "description": "Shorthand: a bare value is treated as the default. E.g. params: { model: \"claude-sonnet-4-20250514\" }"
+          }
+        ]
+      }
+    },
+    "imports": {
+      "type": "array",
+      "description": "Import agents from external YAML files. Imported agents are available as extends targets and are prepended to the agent list.",
+      "items": { "$ref": "#/definitions/ImportSpec" }
+    },
+    "agents": {
+      "type": "array",
+      "description": "List of agent definitions that form the pipeline.",
+      "items": { "$ref": "#/definitions/AgentDefinition" },
+      "minItems": 1
+    }
+  },
+  "definitions": {
+    "ParamDefinition": {
+      "type": "object",
+      "description": "A full parameter declaration with type, default, required flag, and description.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean"],
+          "default": "string",
+          "description": "The parameter type. Used for coercion when resolving CLI overrides."
+        },
+        "default": {
+          "description": "Default value for the parameter. Type should match the declared type. If omitted and required is false, resolves to null.",
+          "examples": ["claude-sonnet-4-20250514", 4096, true]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, the parameter must be provided via CLI --param or params.yaml override file. Pipeline loading fails if a required param has no value."
+        },
+        "description": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable description of the parameter. Shown in error messages when a required param is missing."
+        }
+      }
+    },
+    "ImportSpec": {
+      "type": "object",
+      "description": "An import directive that pulls agents from an external YAML file. The external file can be a full agents.yaml (with an agents: key) or a bare list of agent dicts.",
+      "required": ["from"],
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Path to the external YAML file, relative to the importing file's directory. E.g. \"./shared/qa-agents.yaml\"."
+        },
+        "agents": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "List of agent IDs to import. If empty, all agents from the file are imported. E.g. [\"qa_reviewer\", \"docs_writer\"]."
+        }
+      }
+    },
+    "AgentDefinition": {
+      "type": "object",
+      "description": "Complete definition of a single agent in the pipeline.",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the agent. Used in handoff targets and CLI commands. E.g. \"code_reviewer\".",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_-]*$"
+        },
+        "name": {
+          "type": "string",
+          "default": "",
+          "description": "Human-readable display name. If omitted, auto-generated from id by replacing underscores/hyphens with spaces and title-casing. E.g. \"Code Reviewer\"."
+        },
+        "runtime": {
+          "type": "string",
+          "enum": ["api", "claude_code"],
+          "default": "api",
+          "description": "Execution runtime. \"api\" uses the Anthropic Messages API directly. \"claude_code\" spawns a Claude Code CLI subprocess."
+        },
+        "model": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Model identifier to use for this agent. E.g. \"claude-sonnet-4-20250514\", \"claude-opus-4-20250514\". If null, the runtime default is used."
+        },
+        "system_prompt": {
+          "type": "string",
+          "default": "",
+          "description": "System prompt passed to the model. Supports ${{ params.X }} substitution. E.g. \"You are a senior code reviewer. Focus on security and performance.\""
+        },
+        "handoffs": {
+          "type": "array",
+          "default": [],
+          "description": "List of handoff rules defining where the output goes after this agent completes.",
+          "items": { "$ref": "#/definitions/Handoff" }
+        },
+        "gate": {
+          "oneOf": [
+            { "$ref": "#/definitions/GateConfig" },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Optional gate configuration. When set, the agent's output must pass through a gate (LLM or human review) before handoffs are executed."
+        },
+        "mcp": {
+          "type": "array",
+          "default": [],
+          "description": "List of MCP (Model Context Protocol) servers available to this agent. Supports shorthand string format (just server name) or full config objects.",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/definitions/MCPServerConfig" },
+              {
+                "type": "string",
+                "description": "Shorthand: just the server name. E.g. \"github\" is equivalent to { server: \"github\" }."
+              }
+            ]
+          }
+        },
+        "claude_code_flags": {
+          "type": ["array", "null"],
+          "default": null,
+          "description": "Additional CLI flags passed to Claude Code when runtime is \"claude_code\". E.g. [\"--allowedTools\", \"Edit,Read,Bash\"].",
+          "items": { "type": "string" }
+        },
+        "abstract": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, this agent serves as a template only and is filtered out before execution. Use with extends for pipeline composition."
+        },
+        "extends": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "ID of a parent agent to inherit fields from via shallow merge. Child fields override parent fields. The parent can be abstract. E.g. \"base_reviewer\"."
+        }
+      }
+    },
+    "Handoff": {
+      "type": "object",
+      "description": "A handoff rule defining how output flows from one agent to another.",
+      "required": ["to"],
+      "additionalProperties": false,
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "Target agent ID or comma-separated list for fan-out. E.g. \"qa_reviewer\" or \"qa, docs\" for parallel handoff."
+        },
+        "task": {
+          "type": "string",
+          "default": "",
+          "description": "Description of the task to pass to the target agent. E.g. \"Review the code changes for security issues\"."
+        },
+        "condition": {
+          "type": "string",
+          "default": "always",
+          "description": "When this handoff should trigger. Preset values: \"always\" (unconditional), \"on_approve\" (gate approved), \"on_reject\" (gate rejected), \"on_pass\" (gate passed), \"auto\" (agent decides target via HANDOFF: <id> in output). Custom expressions are also supported.",
+          "examples": ["always", "on_approve", "on_reject", "on_pass", "auto"]
+        },
+        "payload": {
+          "type": "string",
+          "default": "{{ output }}",
+          "description": "Jinja2 template for the payload passed to the target agent. The variable {{ output }} contains the current agent's output."
+        }
+      }
+    },
+    "GateConfig": {
+      "type": "object",
+      "description": "Gate configuration for review/approval before handoff.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["llm", "human"],
+          "default": "llm",
+          "description": "Gate type. \"llm\" uses an LLM to auto-review. \"human\" pauses the pipeline and waits for manual approval via CLI (agent-queue approve/reject)."
+        },
+        "prompt": {
+          "type": "string",
+          "default": "",
+          "description": "Prompt for LLM gate evaluation. Ignored for human gates. E.g. \"Does this code follow our security guidelines? Reply APPROVE or REJECT.\""
+        },
+        "model": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Model to use for LLM gate evaluation. If null, uses the default model. E.g. \"claude-sonnet-4-20250514\"."
+        }
+      }
+    },
+    "MCPServerConfig": {
+      "type": "object",
+      "description": "MCP server configuration. Simplified format requires only the server name; detailed format allows custom command, args, and environment.",
+      "required": ["server"],
+      "additionalProperties": false,
+      "properties": {
+        "server": {
+          "type": "string",
+          "description": "MCP server name or identifier. E.g. \"github\", \"filesystem\", \"postgres\"."
+        },
+        "command": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Command to start the MCP server. E.g. \"npx\", \"python\". If null, the default for the server type is used."
+        },
+        "args": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "Arguments passed to the MCP server command. E.g. [\"/path/to/dir\", \"--read-only\"]."
+        },
+        "env": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Environment variables set for the MCP server process. E.g. { \"GITHUB_TOKEN\": \"${{ params.github_token }}\" }.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

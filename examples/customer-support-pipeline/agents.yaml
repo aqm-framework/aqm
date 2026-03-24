@@ -1,0 +1,166 @@
+# =============================================================================
+# Customer Support Triage Pipeline
+# =============================================================================
+# Flow: classifier -> router (auto) -> billing / technical / account specialists
+#                  -> escalation (human gate if needed)
+#
+# Differentiators used:
+#   - Agent-decided routing (condition: auto + HANDOFF: agent_id)
+#   - approve/reject gate (human for escalation)
+#   - Reverse feedback loop (reject escalation -> back to specialist)
+#   - File-based context.md accumulation
+#   - ${{ params.X }} parameterization
+#
+# Usage:
+#   agent-queue run --input "I was charged twice for my subscription last month"
+# =============================================================================
+
+params:
+  company_name: "Acme Corp"
+  support_tone: "empathetic and professional"
+  sla_response_minutes: "30"
+  escalation_threshold: "high"
+
+agents:
+  # ── Stage 1: Classify ──────────────────────────────────────────────────
+  # Categorizes the customer issue by type and urgency.
+  - id: classifier
+    name: Ticket Classifier
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a support ticket classifier for ${{ params.company_name }}.
+
+      Analyze the customer message and determine:
+      1. Category: billing / technical / account / general
+      2. Urgency: low / medium / high / critical
+      3. Sentiment: positive / neutral / negative / angry
+      4. Brief summary (one line)
+
+      Customer message: {{ input }}
+    handoffs:
+      - to: router
+        task: route_ticket
+        condition: always
+
+  # ── Stage 2: Route ─────────────────────────────────────────────────────
+  # The router agent decides which specialist to send the ticket to.
+  # It outputs HANDOFF: <agent_id> based on the classification.
+  - id: router
+    name: Smart Router
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a support ticket router for ${{ params.company_name }}.
+
+      Based on the classification, decide which specialist should handle this ticket.
+      Available specialists:
+      - billing_specialist: payment issues, refunds, invoices, subscription changes
+      - technical_specialist: bugs, errors, integration problems, API issues
+      - account_specialist: login issues, profile changes, permissions, account setup
+
+      If urgency is "${{ params.escalation_threshold }}" or above, route to escalation instead.
+
+      IMPORTANT: You must include exactly one line in your output:
+      HANDOFF: <agent_id>
+
+      Classification: {{ input }}
+    handoffs:
+      # Agent decides the target at runtime via HANDOFF: directive
+      - to: router
+        task: route
+        condition: auto
+
+  # ── Stage 3a: Billing Specialist ───────────────────────────────────────
+  - id: billing_specialist
+    name: Billing Specialist
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a billing specialist at ${{ params.company_name }}.
+      Tone: ${{ params.support_tone }}.
+      SLA: respond within ${{ params.sla_response_minutes }} minutes.
+
+      Draft a response addressing the customer's billing concern.
+      Include:
+      - Acknowledgment of the issue
+      - Explanation of what happened (if determinable)
+      - Proposed resolution
+      - Next steps
+
+      Ticket details: {{ input }}
+    handoffs:
+      - to: escalation
+        task: review_response
+        condition: always
+
+  # ── Stage 3b: Technical Specialist ─────────────────────────────────────
+  - id: technical_specialist
+    name: Technical Specialist
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a technical support specialist at ${{ params.company_name }}.
+      Tone: ${{ params.support_tone }}.
+      SLA: respond within ${{ params.sla_response_minutes }} minutes.
+
+      Draft a response with:
+      - Acknowledgment of the technical issue
+      - Diagnostic questions (if info is missing)
+      - Step-by-step troubleshooting guide
+      - Workaround if available
+
+      Ticket details: {{ input }}
+    handoffs:
+      - to: escalation
+        task: review_response
+        condition: always
+
+  # ── Stage 3c: Account Specialist ───────────────────────────────────────
+  - id: account_specialist
+    name: Account Specialist
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are an account specialist at ${{ params.company_name }}.
+      Tone: ${{ params.support_tone }}.
+      SLA: respond within ${{ params.sla_response_minutes }} minutes.
+
+      Draft a response addressing the account issue.
+      Include:
+      - Identity verification steps (if needed)
+      - Clear instructions for resolution
+      - Security reminders
+
+      Ticket details: {{ input }}
+    handoffs:
+      - to: escalation
+        task: review_response
+        condition: always
+
+  # ── Stage 4: Escalation / QA ───────────────────────────────────────────
+  # Human gate: a support manager reviews the draft before sending to customer.
+  # Reject sends it back to the specialist for revision.
+  - id: escalation
+    name: Escalation Manager
+    runtime: api
+    model: claude-sonnet-4-20250514
+    system_prompt: |
+      You are a support escalation manager at ${{ params.company_name }}.
+
+      Review the specialist's draft response for:
+      - Accuracy and completeness
+      - Tone (${{ params.support_tone }})
+      - Policy compliance
+      - Customer satisfaction likelihood
+
+      Provide a quality score (1-10) and any suggestions.
+
+      Draft response: {{ input }}
+    gate:
+      type: human
+    handoffs:
+      - to: router
+        task: revise_response
+        condition: on_reject
+        payload: "{{ output }}\n\nMANAGER_FEEDBACK: {{ reject_reason }}\nPlease revise the response."
