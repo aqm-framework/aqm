@@ -13,7 +13,10 @@ AQM_DIR = ".aqm"
 AGENTS_YAML = "agents.yaml"
 
 # YAML spec reference for AI generation — loaded from docs/spec.md at runtime
-SPEC_PATH = Path(__file__).resolve().parent.parent.parent / "docs" / "spec.md"
+# YAML spec reference — try package-internal path first, then project root docs/
+_SPEC_INTERNAL = Path(__file__).resolve().parent.parent / "schema" / "spec.md"
+_SPEC_PROJECT = Path(__file__).resolve().parent.parent.parent / "docs" / "spec.md"
+SPEC_PATH = _SPEC_INTERNAL if _SPEC_INTERNAL.exists() else _SPEC_PROJECT
 
 DEFAULT_AGENTS_YAML = """\
 apiVersion: aqm/v0.1
@@ -354,19 +357,69 @@ def _strip_leading_prose(text: str) -> str:
     return text
 
 
+def _structural_validate(data: dict) -> list[str]:
+    """Fallback structural validation when JSON Schema is unavailable.
+
+    Catches the most common generation errors without requiring jsonschema.
+    """
+    errors: list[str] = []
+
+    if "apiVersion" not in data:
+        errors.append("(root): 'apiVersion' is a required property")
+
+    if "agents" not in data:
+        errors.append("(root): 'agents' is a required property")
+        return errors
+
+    agents = data.get("agents", [])
+    if not isinstance(agents, list):
+        errors.append("(root): 'agents' must be a list")
+        return errors
+
+    valid_runtimes = {"api", "claude_code"}
+    valid_gate_types = {"llm", "human"}
+
+    for i, agent in enumerate(agents):
+        prefix = f"agents -> {i}"
+        if not isinstance(agent, dict):
+            errors.append(f"{prefix}: agent must be a mapping")
+            continue
+        if "id" not in agent:
+            errors.append(f"{prefix}: 'id' is required")
+
+        runtime = agent.get("runtime", "api")
+        if runtime not in valid_runtimes:
+            errors.append(f"{prefix} -> runtime: '{runtime}' is not one of {valid_runtimes}")
+
+        gate = agent.get("gate")
+        if isinstance(gate, dict):
+            gt = gate.get("type", "llm")
+            if gt not in valid_gate_types:
+                errors.append(f"{prefix} -> gate -> type: '{gt}' is not one of {valid_gate_types}")
+
+        for j, handoff in enumerate(agent.get("handoffs", [])):
+            hp = f"{prefix} -> handoffs -> {j}"
+            if not isinstance(handoff, dict):
+                errors.append(f"{hp}: handoff must be a mapping")
+                continue
+            if "to" not in handoff:
+                errors.append(f"{hp}: 'to' is required")
+            payload = handoff.get("payload")
+            if payload is not None and not isinstance(payload, str):
+                errors.append(
+                    f"{hp} -> payload: {payload!r} is not of type 'string'"
+                )
+
+    return errors
+
+
 def _validate_yaml(yaml_text: str) -> list[str]:
     """Validate YAML text against the agents-schema.json.
 
     Returns a list of human-readable error strings.  Empty list means valid.
+    Falls back to structural validation if JSON Schema or jsonschema is unavailable.
     """
     import yaml as _yaml
-
-    try:
-        from jsonschema import Draft7Validator
-    except ImportError:
-        # Can't validate without jsonschema — treat as valid.
-        logger.warning("jsonschema not installed; skipping validation")
-        return []
 
     # Parse YAML
     try:
@@ -377,11 +430,21 @@ def _validate_yaml(yaml_text: str) -> list[str]:
     if not isinstance(data, dict):
         return [f"Root must be a mapping/object, got {type(data).__name__}"]
 
-    # Load JSON Schema
-    schema_path = Path(__file__).resolve().parent.parent.parent / "schema" / "agents-schema.json"
+    # Try JSON Schema validation first
+    try:
+        from jsonschema import Draft7Validator
+    except ImportError:
+        logger.warning("jsonschema not installed; using structural validation")
+        return _structural_validate(data)
+
+    # Load JSON Schema — try package-internal path first, then project root
+    schema_path = Path(__file__).resolve().parent.parent / "schema" / "agents-schema.json"
     if not schema_path.exists():
-        logger.warning("JSON Schema not found at %s; skipping validation", schema_path)
-        return []
+        # Fallback: project root / schema/ (development layout)
+        schema_path = Path(__file__).resolve().parent.parent.parent / "schema" / "agents-schema.json"
+    if not schema_path.exists():
+        logger.warning("JSON Schema not found; using structural validation")
+        return _structural_validate(data)
 
     with open(schema_path, encoding="utf-8") as f:
         schema = json.load(f)
