@@ -68,6 +68,11 @@ pip install aqm
 cd my-project
 aqm init
 
+# Choose your setup method:
+#   [1] Create default template — basic planner→executor pipeline
+#   [2] Pull from registry — install a community pipeline
+#   [3] AI-generate — describe what you want, Claude builds the YAML
+
 # Run a pipeline
 aqm run "Add JWT authentication to login"
 
@@ -189,11 +194,50 @@ Attach MCP servers to any agent so it can **act**, not just generate text.
 
 ### `aqm init`
 
-Initialize `.aqm/` in the current project directory.
+Initialize `.aqm/` in the current project directory with an interactive setup wizard.
 
 ```bash
 aqm init
 aqm init --path /path/to/project
+```
+
+The wizard offers three setup methods:
+
+| Method | Description |
+|--------|-------------|
+| **[1] Default template** | Start with a basic planner→executor pipeline. Edit `agents.yaml` to customize. |
+| **[2] Pull from registry** | Browse and install pipelines from bundled examples or local registry. |
+| **[3] AI-generate** | Describe your desired pipeline in plain language and Claude generates the YAML — always referencing the full [YAML spec](docs/spec.md) for correctness. |
+
+**AI-generate example:**
+
+```bash
+$ aqm init
+How would you like to set up your pipeline?
+
+  [1] Create default template
+  [2] Pull from registry
+  [3] AI-generate from description
+
+  Choice: 3
+
+  Pipeline description: Code review pipeline with planning, review gate,
+  implementation, and automated QA testing
+
+  Generating agents.yaml with Claude (referencing YAML spec)...
+
+  Generated agents.yaml:
+  ─────────────────────────────────────
+  apiVersion: aqm/v0.1
+  agents:
+    - id: planner
+      ...
+  ─────────────────────────────────────
+
+  [1] Use this pipeline  [2] Regenerate  [3] Use default template
+  Choice: 1
+
+✓ .aqm/ initialized with AI-generated pipeline
 ```
 
 Creates:

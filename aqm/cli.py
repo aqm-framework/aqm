@@ -29,6 +29,7 @@ from rich.table import Table
 from aqm.core.agent import load_agents
 from aqm.core.project import (
     find_project_root,
+    generate_agents_yaml,
     get_agents_yaml_path,
     get_db_path,
     get_tasks_dir,
@@ -177,14 +178,182 @@ def cli(verbose: bool) -> None:
     help="Directory to initialize (default: current directory)",
 )
 def init(path: str | None) -> None:
-    """Initialize .aqm/ in the current project."""
+    """Initialize .aqm/ in the current project.
+
+    Offers three setup methods:
+      [1] Create default template — start with a basic planner→executor pipeline
+      [2] Pull from registry — install a community or local pipeline
+      [3] AI-generate — describe your pipeline and let Claude create it
+    """
     target = Path(path) if path else None
-    root = init_project(target)
+
+    console.print("\n[bold]How would you like to set up your pipeline?[/]\n")
+    console.print("  [green][1][/] Create default template")
+    console.print("  [blue][2][/] Pull from registry")
+    console.print("  [magenta][3][/] AI-generate from description")
+
+    choice = click.prompt("\n  Choice", type=click.IntRange(1, 3), default=1)
+
+    if choice == 1:
+        # Default template
+        root = init_project(target)
+        agents_yaml = get_agents_yaml_path(root)
+        console.print(f"\n[green]✓[/] .aqm/ initialization complete")
+        console.print(f"  Config file: {agents_yaml}")
+        console.print(f"\n[dim]Edit agents.yaml to configure your pipeline.[/]")
+
+    elif choice == 2:
+        # Pull from registry — show search results first
+        _init_from_registry(target)
+
+    elif choice == 3:
+        # AI-generate from description
+        _init_from_ai(target)
+
+
+def _init_from_registry(target: Path | None) -> None:
+    """Interactive registry pull during init."""
+    # Show available pipelines
+    results: list[tuple[str, str]] = []
+
+    examples_dir = _get_bundled_examples_dir()
+    if examples_dir.is_dir():
+        for d in sorted(examples_dir.iterdir()):
+            if d.is_dir() and (d / "agents.yaml").exists():
+                results.append((d.name, "bundled"))
+
+    registry_dir = _get_registry_dir()
+    if registry_dir.is_dir():
+        for d in sorted(registry_dir.iterdir()):
+            if d.is_dir() and (d / "agents.yaml").exists():
+                if not any(r[0] == d.name for r in results):
+                    results.append((d.name, "local"))
+
+    if not results:
+        console.print("[yellow]No pipelines available in registry.[/]")
+        console.print("[dim]Falling back to default template.[/]")
+        root = init_project(target)
+        console.print(f"[green]✓[/] .aqm/ initialized with default template")
+        return
+
+    console.print(f"\n[bold]Available pipelines:[/]\n")
+    for i, (name, source) in enumerate(results, 1):
+        src_tag = f"[blue]{source}[/]"
+        console.print(f"  [green][{i}][/] {name}  {src_tag}")
+
+    idx = click.prompt(
+        f"\n  Select pipeline",
+        type=click.IntRange(1, len(results)),
+        default=1,
+    )
+    pipeline_name, _ = results[idx - 1]
+
+    # Find source YAML
+    source_yaml: Path | None = None
+    local_path = registry_dir / pipeline_name / "agents.yaml"
+    if local_path.exists():
+        source_yaml = local_path
+    else:
+        bundled_path = examples_dir / pipeline_name / "agents.yaml"
+        if bundled_path.exists():
+            source_yaml = bundled_path
+
+    if not source_yaml:
+        console.print(f"[red]Pipeline '{pipeline_name}' not found.[/]")
+        sys.exit(1)
+
+    content = source_yaml.read_text(encoding="utf-8")
+    root = init_project(target, yaml_content=content)
     agents_yaml = get_agents_yaml_path(root)
-    console.print(f"[green]✓[/] .aqm/ initialization complete")
-    console.print(f"  Config file: {agents_yaml}")
+
+    import yaml as _yaml
+    data = _yaml.safe_load(content)
+    agent_count = len(data.get("agents", []))
+
     console.print(
-        f"\n[dim]Edit agents.yaml to configure your pipeline.[/]"
+        f"\n[green]✓[/] .aqm/ initialized with [bold]{pipeline_name}[/]\n"
+        f"  Agents: {agent_count}\n"
+        f"  Config file: {agents_yaml}\n"
+        f"\n  Run [bold]aqm run \"your task\"[/] to start the pipeline."
+    )
+
+
+def _init_from_ai(target: Path | None) -> None:
+    """AI-generate agents.yaml from user description."""
+    console.print(
+        "\n[bold]Describe the pipeline you want to create.[/]\n"
+        "[dim]Examples:[/]\n"
+        '  [dim]"Code review pipeline with planning, implementation, and QA stages"[/]\n'
+        '  [dim]"Blog content pipeline: research → write → edit → SEO optimize"[/]\n'
+        '  [dim]"Customer support triage that routes to technical or billing agents"[/]\n'
+    )
+
+    description = click.prompt("  Pipeline description", type=str)
+
+    console.print(f"\n[dim]Generating agents.yaml with Claude (referencing YAML spec)...[/]")
+
+    try:
+        generated = generate_agents_yaml(description)
+    except Exception as e:
+        console.print(f"[red]Generation failed:[/] {e}")
+        console.print("[dim]Falling back to default template.[/]")
+        root = init_project(target)
+        console.print(f"[green]✓[/] .aqm/ initialized with default template")
+        return
+
+    # Preview the generated YAML
+    console.print("\n[bold]Generated agents.yaml:[/]\n")
+    from rich.syntax import Syntax
+    console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
+
+    action = click.prompt(
+        "\n  [1] Use this pipeline  [2] Regenerate  [3] Use default template\n  Choice",
+        type=click.IntRange(1, 3),
+        default=1,
+    )
+
+    if action == 2:
+        # Allow refining the description
+        refined = click.prompt("  Refined description (or press Enter to retry)", default=description)
+        console.print(f"\n[dim]Regenerating...[/]")
+        try:
+            generated = generate_agents_yaml(refined)
+            console.print("\n[bold]Regenerated agents.yaml:[/]\n")
+            console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
+            if not click.confirm("\n  Use this pipeline?", default=True):
+                console.print("[dim]Using default template instead.[/]")
+                root = init_project(target)
+                console.print(f"[green]✓[/] .aqm/ initialized with default template")
+                return
+        except Exception as e:
+            console.print(f"[red]Regeneration failed:[/] {e}")
+            console.print("[dim]Using default template.[/]")
+            root = init_project(target)
+            console.print(f"[green]✓[/] .aqm/ initialized with default template")
+            return
+
+    if action == 3:
+        root = init_project(target)
+        console.print(f"\n[green]✓[/] .aqm/ initialized with default template")
+        return
+
+    # Validate before writing
+    import yaml as _yaml
+    try:
+        data = _yaml.safe_load(generated)
+        if not isinstance(data, dict) or "agents" not in data:
+            console.print("[yellow]Warning:[/] Generated YAML may not be valid. Proceeding anyway.")
+    except Exception:
+        console.print("[yellow]Warning:[/] Could not parse generated YAML. Proceeding anyway.")
+
+    root = init_project(target, yaml_content=generated)
+    agents_yaml = get_agents_yaml_path(root)
+
+    console.print(
+        f"\n[green]✓[/] .aqm/ initialized with AI-generated pipeline\n"
+        f"  Config file: {agents_yaml}\n"
+        f"\n  Run [bold]aqm validate[/] to check the configuration.\n"
+        f"  Run [bold]aqm run \"your task\"[/] to start the pipeline."
     )
 
 
