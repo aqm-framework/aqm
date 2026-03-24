@@ -417,6 +417,17 @@ Print the full `context.md` for a task.
 aqm context T-A3F2B1
 ```
 
+### `aqm cancel`
+
+Cancel a running or pending task.
+
+```bash
+aqm cancel T-A3F2B1
+aqm cancel T-A3F2B1 -r "Requirements changed"
+```
+
+For `in_progress` tasks, the pipeline stops at the next stage boundary. Completed stages are preserved — use `git diff` to review any code changes made before cancellation.
+
 ### `aqm serve`
 
 Launch the local web dashboard.
@@ -429,11 +440,20 @@ aqm serve --host 0.0.0.0 --port 8080
 
 Requires: `pip install aqm[serve]`
 
-Dashboard features:
-- **Task list** — status, current agent, elapsed time
-- **Agent diagram** — auto-generated connection graph from YAML
-- **Task detail** — stage-by-stage input/output, gate results
-- **Gate actions** — approve/reject buttons directly in the UI
+The web dashboard provides **all CLI features** with a visual interface:
+
+| Page | Features |
+|------|----------|
+| **Tasks** (`/`) | Run pipeline, task list with stats, fix follow-ups, cancel tasks |
+| **Agents** (`/agents`) | D3.js directed graph with SVG connection lines, condition labels, gate badges, fan-out visualization |
+| **Registry** (`/registry`) | Search pipelines (GitHub + local + bundled), pull, publish |
+| **Validate** (`/validate`) | JSON Schema validation with error details and fix suggestions |
+| **Task Detail** (`/tasks/{id}`) | Stage timeline, SSE real-time progress, gate approve/reject, context.md viewer |
+
+Additional web-only features:
+- **Real-time pipeline progress** via Server-Sent Events (SSE)
+- **Stale task recovery** — `in_progress` tasks from a crashed server are automatically marked as `stalled` on restart
+- **Interactive agent diagram** — auto-layout with dagre, color-coded edges (green=always, red=on_reject, purple=auto)
 
 ### `aqm pull`
 
@@ -1045,6 +1065,8 @@ In this example, the QA agent analyzes test results and autonomously decides:
 | File-based context | ❌ | ❌ | ❌ | **context.md** |
 | MCP agent connection | Manual | ❌ | ❌ | **Declarative** |
 | Local/offline | ❌ | ❌ | ❌ | **Default** |
+| Web dashboard | ❌ | Paid | ❌ | **Built-in (all CLI features)** |
+| Task cancellation | Manual | ❌ | ❌ | **`aqm cancel` + web UI** |
 
 ## Design Principles
 
@@ -1093,7 +1115,11 @@ aqm/
 │   │   ├── api.py            # Claude CLI runtime (text-only)
 │   │   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
 │   ├── web/
-│   │   └── app.py            # FastAPI web dashboard
+│   │   ├── app.py            # FastAPI app factory
+│   │   ├── templates.py      # Shared CSS/layout/helpers
+│   │   ├── pages/            # Page renderers (dashboard, agents, registry, validate, task_detail)
+│   │   └── api/              # REST + SSE endpoints (tasks, registry, validate)
+│   ├── registry.py           # GitHub-based pipeline registry
 │   └── cli.py                # Click CLI
 ├── schema/
 │   └── agents-schema.json    # JSON Schema for agents.yaml
@@ -1123,6 +1149,10 @@ aqm/
 - [x] 10 seed pipelines covering software, content, legal, data, and more
 - [x] Interactive params: `prompt` + `auto_detect` for guided pipeline setup
 - [x] Follow-up tasks: `aqm fix` for multi-turn iteration with context carry-over
+- [x] Task cancellation: `aqm cancel` with graceful pipeline stop
+- [x] Full web dashboard: all CLI features in browser with D3.js agent diagram
+- [x] SSE real-time pipeline progress streaming
+- [x] Stale task recovery on server restart
 
 ### v0.2 — Connections
 - [ ] Enhanced per-agent MCP server support
@@ -1137,7 +1167,7 @@ aqm/
 ### v1.0 — Stabilization
 - [ ] Task dependencies (DAG)
 - [ ] Redis / Postgres queue backends
-- [ ] Full web dashboard with real-time updates
+- [ ] Pipeline execution history and analytics
 
 ## Contributing
 
