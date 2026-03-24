@@ -397,12 +397,14 @@ def create_tasks_router(project_root: Path) -> APIRouter:
             if task.status.value in ("completed", "failed", "cancelled"):
                 raise HTTPException(400, f"Task already {task.status.value}")
 
-            if task.status == TaskStatus.in_progress:
-                signal_cancel(task_id)
-                broadcast_event(task_id, "task_cancelled", {"reason": "Cancelled by user"})
-                return {"id": task_id, "status": "cancelling", "message": "Cancellation signalled, will stop at next stage boundary"}
+            # Allow cancelling stalled tasks too
+            # (stalled = server crashed while task was in_progress)
 
-            # pending/awaiting_gate — cancel immediately
+            if task.status == TaskStatus.in_progress:
+                # Signal the pipeline loop to stop at next check
+                signal_cancel(task_id)
+
+            # Update status immediately in DB for all cancellable states
             task.status = TaskStatus.cancelled
             task.metadata["cancel_reason"] = "Cancelled by user"
             task.touch()
