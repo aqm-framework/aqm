@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import copy
+
 from agent_queue.core.agent import AgentDefinition, Handoff, load_agents
 from agent_queue.core.context import build_payload, build_prompt
 from agent_queue.core.context_file import ContextFile
@@ -91,6 +93,10 @@ class Pipeline:
             task.context_dir = str(task_dir)
         return ContextFile(task_dir)
 
+    # ------------------------------------------------------------------
+    # Handoff condition evaluation
+    # ------------------------------------------------------------------
+
     def _evaluate_condition(
         self,
         condition: str,
@@ -105,13 +111,13 @@ class Pipeline:
         if condition == "on_reject":
             return gate_result is not None and gate_result.decision == "rejected"
         if condition == "on_pass":
-            # When there is no gate or when approved
             return gate_result is None or gate_result.decision == "approved"
+        if condition == "auto":
+            # Always "matches" — actual target is resolved from agent output.
+            return True
 
-        # Expression conditions (e.g., "severity == critical", "severity in [major, minor]")
-        # Simple evaluation via keyword matching in the output
+        # Expression conditions (e.g., "severity == critical")
         try:
-            # "key == value" format
             eq_match = re.match(
                 r"(\w+)\s*==\s*[\"']?(\w+)[\"']?", condition
             )
@@ -119,7 +125,6 @@ class Pipeline:
                 key, value = eq_match.groups()
                 return value.lower() in agent_output.lower()
 
-            # "key in [val1, val2]" format
             in_match = re.match(
                 r"(\w+)\s+in\s+\[([^\]]+)\]", condition
             )
@@ -136,6 +141,24 @@ class Pipeline:
 
         return False
 
+    def _parse_auto_handoff_targets(self, agent_output: str) -> list[str]:
+        """Extract agent IDs from ``HANDOFF: id1, id2`` directives in agent output.
+
+        The agent can include one or more lines like::
+
+            HANDOFF: developer
+            HANDOFF: developer, qa
+
+        Returns a deduplicated list of agent IDs in order of appearance.
+        """
+        targets: list[str] = []
+        for m in re.finditer(r"HANDOFF:\s*(.+)", agent_output, re.IGNORECASE):
+            for part in m.group(1).split(","):
+                t = part.strip()
+                if t and t not in targets:
+                    targets.append(t)
+        return targets
+
     def _resolve_handoffs(
         self,
         agent: AgentDefinition,
@@ -143,25 +166,59 @@ class Pipeline:
         agent_output: str,
         input_text: str,
     ) -> list[tuple[str, str]]:
-        """Evaluate handoff conditions and return a list of (target_agent_id, payload)."""
+        """Evaluate handoff conditions and return a list of (target_agent_id, payload).
+
+        Supports:
+        - **auto**: targets parsed from ``HANDOFF: <id>`` in agent output
+        - **fan-out**: comma-separated ``to`` field (e.g. ``"qa, docs"``)
+        - **multi-match**: all matching handoff rules contribute targets
+        """
         results: list[tuple[str, str]] = []
+        seen: set[str] = set()
 
         for handoff in agent.handoffs:
-            if self._evaluate_condition(
+            if not self._evaluate_condition(
                 handoff.condition, gate_result, agent_output
             ):
-                payload = build_payload(
-                    handoff.payload,
-                    output=agent_output,
-                    input_text=input_text,
-                    reject_reason=(
-                        gate_result.reason if gate_result else ""
-                    ),
-                    gate_result=(
-                        gate_result.decision if gate_result else ""
-                    ),
-                )
-                results.append((handoff.to, payload))
+                continue
+
+            payload = build_payload(
+                handoff.payload,
+                output=agent_output,
+                input_text=input_text,
+                reject_reason=(
+                    gate_result.reason if gate_result else ""
+                ),
+                gate_result=(
+                    gate_result.decision if gate_result else ""
+                ),
+            )
+
+            if handoff.condition == "auto":
+                # Agent decides: parse HANDOFF directives from output
+                auto_targets = self._parse_auto_handoff_targets(agent_output)
+                if not auto_targets:
+                    logger.warning(
+                        "[Pipeline] condition=auto but no HANDOFF directive "
+                        "found in agent output; skipping handoff."
+                    )
+                    continue
+                for target in auto_targets:
+                    if target in self.agents and target not in seen:
+                        results.append((target, payload))
+                        seen.add(target)
+                    elif target not in self.agents:
+                        logger.warning(
+                            f"[Pipeline] HANDOFF target '{target}' "
+                            f"does not exist; skipping."
+                        )
+            else:
+                # Static or expression condition — expand comma-separated targets
+                targets = [t.strip() for t in handoff.to.split(",")]
+                for target in targets:
+                    if target not in seen:
+                        results.append((target, payload))
+                        seen.add(target)
 
         return results
 
@@ -311,7 +368,27 @@ class Pipeline:
                 logger.info(f"[Pipeline] {task.id} completed")
                 return task
 
-            # Process only the first handoff synchronously (others go to queue)
+            # Fan-out: first target continues in this task; additional
+            # targets spawn independent child tasks.
+            if len(handoff_targets) > 1:
+                for extra_agent_id, extra_payload in handoff_targets[1:]:
+                    child = Task(
+                        description=f"[fan-out from {task.id}] {task.description}",
+                        metadata={"parent_task_id": task.id},
+                    )
+                    self.queue.push(child, extra_agent_id)
+                    logger.info(
+                        f"[Pipeline] {task.id} fan-out -> "
+                        f"child {child.id} -> agent '{extra_agent_id}'"
+                    )
+                    # Run child task asynchronously (push to queue, run inline)
+                    self.run_task(
+                        child,
+                        extra_agent_id,
+                        input_text=extra_payload,
+                        on_stage_complete=on_stage_complete,
+                    )
+
             next_agent_id, next_payload = handoff_targets[0]
 
             ctx_file.save_payload(next_payload)

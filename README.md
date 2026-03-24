@@ -157,6 +157,11 @@ T-A3F2B1 created
   → [qa] tests pass → done
 ```
 
+Handoffs support three routing strategies:
+- **Static** — fixed target (`to: reviewer`)
+- **Fan-out** — multiple targets in parallel (`to: qa, docs, deploy`)
+- **Agent-decided** — agent chooses at runtime (`condition: auto` + `HANDOFF: agent_id` in output)
+
 ### 3. Context accumulates in files
 
 Each time a task passes through an agent, the result is appended to `context.md`. The next agent reads this file to understand the full history.
@@ -465,7 +470,7 @@ handoffs:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `to` | `string` | **Yes** | — | Target agent `id`. Must exist in the agents list. |
+| `to` | `string` | **Yes** | — | Target agent `id`. Comma-separated for fan-out (e.g. `"qa, docs"`). Ignored when `condition: auto`. |
 | `task` | `string` | No | `""` | Label describing what the next agent should do. |
 | `condition` | `string` | No | `"always"` | When this handoff triggers. See conditions below. |
 | `payload` | `string` | No | `"{{ output }}"` | Jinja2 template for data passed to the next agent. |
@@ -478,7 +483,52 @@ handoffs:
 | `on_approve` | Gate decision is `approved` |
 | `on_reject` | Gate decision is `rejected` |
 | `on_pass` | No gate exists, or gate approved |
+| `auto` | **Agent decides at runtime** — parses `HANDOFF: <id>` from agent output |
 | Custom expression | Expression evaluates to true (e.g. `"severity == critical"`, `"severity in [major, minor]"`) |
+
+#### Three Routing Strategies
+
+**1. Static routing** — fixed target, simplest form:
+```yaml
+handoffs:
+  - to: reviewer
+    condition: always
+```
+
+**2. Fan-out** — send to multiple agents simultaneously:
+```yaml
+handoffs:
+  - to: qa, docs, deploy       # all three run in parallel as child tasks
+    condition: on_approve
+```
+The first target continues in the current task; additional targets spawn independent child tasks that run concurrently.
+
+**3. Agent-decided routing (`auto`)** — the agent itself chooses where to route:
+```yaml
+# Triage agent analyzes the input and decides which specialist to hand off to
+- id: triage
+  name: Triage Agent
+  runtime: api
+  system_prompt: |
+    Analyze the request and decide which agent should handle it.
+    End your response with: HANDOFF: <agent_id>
+    Available agents: developer, designer, analyst
+  handoffs:
+    - to: "*"                   # 'to' is ignored when condition is auto
+      condition: auto
+```
+The agent includes a `HANDOFF:` directive in its output:
+```
+This request requires code changes to the payment module.
+HANDOFF: developer
+```
+Multiple targets are also supported:
+```
+This needs both code changes and documentation updates.
+HANDOFF: developer, docs
+```
+
+> **Note:** When using `auto`, the agent must include `HANDOFF: <agent_id>` in its output. If the directive is missing, the handoff is skipped and a warning is logged.
 
 #### Payload Template Variables
 
@@ -496,6 +546,36 @@ handoffs:
     task: revise_spec
     condition: on_reject
     payload: "REJECTED: {{ reject_reason }}\nOriginal plan: {{ output }}"
+```
+
+**Example — Intelligent triage with fan-out:**
+```yaml
+agents:
+  - id: triage
+    name: Triage Agent
+    runtime: api
+    system_prompt: |
+      Analyze this customer request. Determine which teams should handle it.
+      If multiple teams are needed, list them all.
+      End with: HANDOFF: team1, team2
+    handoffs:
+      - to: "*"
+        condition: auto
+
+  - id: billing
+    name: Billing Agent
+    runtime: api
+    system_prompt: "Handle billing issues: {{ input }}"
+
+  - id: technical
+    name: Technical Agent
+    runtime: claude_code
+    system_prompt: "Investigate technical issues: {{ input }}"
+
+  - id: account
+    name: Account Agent
+    runtime: api
+    system_prompt: "Handle account issues: {{ input }}"
 ```
 
 ---
@@ -655,16 +735,20 @@ agents:
     runtime: claude_code
     mcp:
       - server: browsertools
-    gate:
-      type: human
+    system_prompt: |
+      Run tests and evaluate quality. If issues are found,
+      decide severity and route accordingly.
+      End with: HANDOFF: <agent_id>
     handoffs:
-      - to: planner
-        task: rethink_spec
-        condition: "severity == critical"
-      - to: developer
-        task: fix_bugs
-        condition: "severity in [major, minor]"
+      # Agent decides based on analysis — no static condition needed
+      - to: "*"
+        condition: auto
 ```
+
+In this example, the QA agent analyzes test results and autonomously decides:
+- `HANDOFF: developer` for minor bugs
+- `HANDOFF: planner` for critical design issues
+- `HANDOFF: developer, docs` if both code and docs need updates
 
 ## Pipelines for Any Domain
 
@@ -685,6 +769,8 @@ agents:
 | Explicit queue | ❌ | ❌ | ❌ | **SQLite default** |
 | Approve/Reject gate | Interrupt pattern | ❌ | ❌ | **First-class** |
 | Reverse feedback loop | Manual | Limited | ❌ | **Built-in** |
+| Fan-out (parallel branches) | Manual | ❌ | ❌ | **Declarative** |
+| Agent-decided routing | Manual | ❌ | ❌ | **`condition: auto`** |
 | File-based context | ❌ | ❌ | ❌ | **context.md** |
 | MCP agent connection | Manual | ❌ | ❌ | **Declarative** |
 | Local/offline | ❌ | ❌ | ❌ | **Default** |
@@ -735,11 +821,13 @@ agent-queue/
 ### v0.1 — Core
 - [x] SQLite-based task queue
 - [x] YAML agent declarations
-- [x] Handoff routing (with conditions)
+- [x] Handoff routing (static, fan-out, agent-decided)
 - [x] LLM / Human approval gates
 - [x] File-based context accumulation (context.md)
 - [x] Claude Code runtime with MCP support
 - [x] Local web UI dashboard
+- [x] Fan-out: parallel child tasks from comma-separated targets
+- [x] `condition: auto`: agent-decided routing via `HANDOFF:` directive
 
 ### v0.2 — Connections
 - [ ] Enhanced per-agent MCP server support
