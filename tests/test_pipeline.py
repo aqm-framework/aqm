@@ -322,6 +322,79 @@ class TestProject:
         assert found is None
 
 
+# ── YAML Generation Helpers ────────────────────────────────────────────
+
+
+class TestYamlGenerationHelpers:
+    def test_strip_markdown_fences_yaml(self):
+        from aqm.core.project import _strip_markdown_fences
+
+        text = "```yaml\napiVersion: aqm/v0.1\nagents: []\n```"
+        result = _strip_markdown_fences(text)
+        assert result == "apiVersion: aqm/v0.1\nagents: []"
+
+    def test_strip_markdown_fences_plain(self):
+        from aqm.core.project import _strip_markdown_fences
+
+        text = "```\napiVersion: aqm/v0.1\n```"
+        result = _strip_markdown_fences(text)
+        assert result == "apiVersion: aqm/v0.1"
+
+    def test_strip_markdown_fences_no_fences(self):
+        from aqm.core.project import _strip_markdown_fences
+
+        text = "apiVersion: aqm/v0.1\nagents: []"
+        result = _strip_markdown_fences(text)
+        assert result == text
+
+    def test_strip_leading_prose(self):
+        from aqm.core.project import _strip_leading_prose
+
+        text = (
+            "Here is the generated YAML:\n"
+            "\n"
+            "apiVersion: aqm/v0.1\n"
+            "agents:\n"
+            "  - id: planner\n"
+        )
+        result = _strip_leading_prose(text)
+        assert result.startswith("apiVersion: aqm/v0.1")
+        assert "Here is" not in result
+
+    def test_strip_leading_prose_no_prose(self):
+        from aqm.core.project import _strip_leading_prose
+
+        text = "apiVersion: aqm/v0.1\nagents: []"
+        result = _strip_leading_prose(text)
+        assert result == text
+
+    def test_strip_leading_prose_starts_with_agents(self):
+        from aqm.core.project import _strip_leading_prose
+
+        text = "Some intro text\nagents:\n  - id: a"
+        result = _strip_leading_prose(text)
+        assert result.startswith("agents:")
+
+    def test_combined_fences_and_prose(self):
+        from aqm.core.project import _strip_markdown_fences, _strip_leading_prose
+
+        text = (
+            "```yaml\n"
+            "I'll create a pipeline for you:\n"
+            "\n"
+            "apiVersion: aqm/v0.1\n"
+            "agents:\n"
+            "  - id: planner\n"
+            "    name: Planner\n"
+            "```"
+        )
+        result = _strip_markdown_fences(text)
+        result = _strip_leading_prose(result)
+        assert result.startswith("apiVersion: aqm/v0.1")
+        assert "I'll create" not in result
+        assert "```" not in result
+
+
 # ── Gate ────────────────────────────────────────────────────────────────
 
 
