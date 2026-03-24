@@ -46,6 +46,15 @@ def render_dashboard(
         <label for="runAgent">Starting agent</label>
         <select id="runAgent"><option value="">Default (first agent)</option>{agent_options}</select>
       </div>
+      <div class="form-group">
+        <label for="runPriority">Priority</label>
+        <select id="runPriority">
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="normal" selected>Normal</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
     </div>
     <button type="submit" class="btn btn-primary">Start Run</button>
     <span id="runResult" style="margin-left:12px;font-size:13px;"></span>
@@ -57,7 +66,8 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
   const desc = document.getElementById('runDesc').value.trim();
   if (!desc) return;
   const agent = document.getElementById('runAgent').value;
-  const body = {{description: desc}};
+  const priority = document.getElementById('runPriority').value;
+  const body = {{description: desc, priority: priority}};
   if (agent) body.agent_id = agent;
   const btn = e.target.querySelector('button[type=submit]');
   btn.disabled = true; btn.textContent = 'Starting...';
@@ -73,7 +83,7 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
 
     # Task table
     if not tasks:
-        rows = '<tr><td colspan="7" class="empty-state">No tasks yet. Run a pipeline above.</td></tr>'
+        rows = '<tr><td colspan="8" class="empty-state">No tasks yet. Run a pipeline above.</td></tr>'
     else:
         row_list = []
         for t in tasks:
@@ -90,10 +100,25 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
             if t.status in (TaskStatus.pending, TaskStatus.in_progress, TaskStatus.awaiting_gate):
                 actions += f' <button class="btn btn-sm btn-red" onclick="cancelTask(\'{esc(t.id)}\')">Cancel</button>'
 
+            priority_colors = {"critical": "var(--red)", "high": "var(--orange)", "normal": "var(--text-dim)", "low": "var(--text-dim)"}
+            p_name = t.priority.name
+            p_color = priority_colors.get(p_name, "var(--text-dim)")
+            priority_html = (
+                f'<select onchange="changePriority(\'{esc(t.id)}\',this.value)" '
+                f'style="background:var(--surface2);border:1px solid var(--border);color:{p_color};'
+                f'border-radius:4px;padding:2px 4px;font-size:12px;cursor:pointer;">'
+                f'<option value="critical"{"selected" if p_name=="critical" else ""}>critical</option>'
+                f'<option value="high"{"selected" if p_name=="high" else ""}>high</option>'
+                f'<option value="normal"{"selected" if p_name=="normal" else ""}>normal</option>'
+                f'<option value="low"{"selected" if p_name=="low" else ""}>low</option>'
+                f'</select>'
+            )
+
             row_list.append(
                 f'<tr>'
                 f'<td><a href="/tasks/{esc(t.id)}">{esc(t.id)}</a></td>'
                 f'<td>{badge(t.status.value)}</td>'
+                f'<td>{priority_html}</td>'
                 f'<td>{agent}</td>'
                 f'<td>{desc}</td>'
                 f'<td>{len(t.stages)}</td>'
@@ -106,7 +131,7 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
     table = f"""\
 <h2 style="margin-top:24px;">Tasks</h2>
 <table>
-<thead><tr><th>ID</th><th>Status</th><th>Agent</th><th>Description</th><th>Stages</th><th>Created</th><th>Actions</th></tr></thead>
+<thead><tr><th>ID</th><th>Status</th><th>Priority</th><th>Agent</th><th>Description</th><th>Stages</th><th>Created</th><th>Actions</th></tr></thead>
 <tbody>{rows}</tbody>
 </table>"""
 
@@ -127,6 +152,12 @@ document.getElementById('runForm').addEventListener('submit', async (e) => {{
   </div>
 </div>
 <script>
+async function changePriority(taskId, priority) {
+  try {
+    await apiFetch('/api/tasks/' + taskId + '/priority', {method:'POST', body:JSON.stringify({priority:priority})});
+    showToast('Priority updated');
+  } catch(e) {}
+}
 async function cancelTask(taskId) {
   if (!confirm('Cancel task ' + taskId + '?')) return;
   try {

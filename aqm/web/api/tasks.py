@@ -36,6 +36,7 @@ class RunPipelineRequest(BaseModel):
     description: str
     agent_id: Optional[str] = None
     params: Optional[dict[str, str]] = None
+    priority: str = "normal"
 
 
 class FixRequest(BaseModel):
@@ -52,6 +53,10 @@ class GateActionRequest(BaseModel):
 class ResumeRequest(BaseModel):
     decision: str  # "approved" or "rejected"
     reason: Optional[str] = None
+
+
+class PriorityRequest(BaseModel):
+    priority: str  # critical, high, normal, low
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +195,13 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         if start_agent not in agents:
             raise HTTPException(400, f"Agent '{start_agent}' not found")
 
-        task = Task(description=req.description, current_agent_id=start_agent)
+        from aqm.core.task import TaskPriority
+        try:
+            task_priority = TaskPriority[req.priority]
+        except KeyError:
+            raise HTTPException(400, f"Invalid priority: {req.priority}")
+
+        task = Task(description=req.description, current_agent_id=start_agent, priority=task_priority)
         queue = _get_queue()
         try:
             queue.push(task, queue_name=start_agent)
@@ -329,6 +340,29 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         thread.start()
 
         return {"id": task_id, "status": "rejected", "message": "Task rejected, pipeline resuming"}
+
+    # ── Priority ───────────────────────────────────────────────────────
+
+    @router.post("/api/tasks/{task_id}/priority")
+    async def api_set_priority(task_id: str, req: PriorityRequest):
+        from aqm.core.task import TaskPriority
+        try:
+            new_priority = TaskPriority[req.priority]
+        except KeyError:
+            raise HTTPException(400, f"Invalid priority: {req.priority}")
+
+        queue = _get_queue()
+        try:
+            task = queue.get(task_id)
+            if not task:
+                raise HTTPException(404, "Task not found")
+            old = task.priority.name
+            task.priority = new_priority
+            task.touch()
+            queue.update(task)
+            return {"id": task_id, "old_priority": old, "new_priority": req.priority}
+        finally:
+            queue.close()
 
     # ── Cancel ─────────────────────────────────────────────────────────
 

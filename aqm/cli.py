@@ -440,7 +440,18 @@ def _init_from_ai(target: Path | None) -> None:
     multiple=True,
     help="Parameter override in key=value format (repeatable)",
 )
-def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
+@click.option(
+    "--priority",
+    type=click.Choice(["critical", "high", "normal", "low"]),
+    default="normal",
+    help="Task priority (default: normal)",
+)
+@click.option(
+    "--parallel",
+    is_flag=True,
+    help="Run in parallel with other tasks (default: sequential)",
+)
+def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: str, parallel: bool) -> None:
     """Run pipeline. Example: aqm run 'Build a login feature'"""
     root = _require_project()
 
@@ -490,7 +501,24 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
         console.print(f"[red]Error:[/] {e}")
         sys.exit(1)
 
+    from aqm.core.task import TaskPriority
+
     queue = _get_queue(root)
+
+    # Check for running tasks (sequential mode)
+    if not parallel:
+        running = queue.list_tasks(status=TaskStatus.in_progress)
+        if running:
+            console.print(
+                f"[yellow]⏳ Waiting...[/] {len(running)} task(s) running "
+                f"(use --parallel to skip waiting)"
+            )
+            import time as _time
+            while True:
+                _time.sleep(2)
+                running = queue.list_tasks(status=TaskStatus.in_progress)
+                if not running:
+                    break
 
     start_agent = agent or next(iter(agents))
 
@@ -498,11 +526,19 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
 
     pipeline = Pipeline(agents, queue, root)
 
-    task = Task(description=input_text)
+    task_priority = TaskPriority[priority]
+    task = Task(description=input_text, priority=task_priority)
     queue.push(task, start_agent)
 
-    console.print(f"[green]✓[/] Task created: [bold]{task.id}[/]")
+    priority_label = f" [{priority}]" if priority != "normal" else ""
+    console.print(f"[green]✓[/] Task created: [bold]{task.id}[/]{priority_label}")
     console.print(f"  Starting agent: {start_agent}\n")
+
+    if parallel:
+        console.print(
+            f"[yellow]⚠ Parallel mode:[/] Multiple agents may modify files simultaneously.\n"
+            f"  Use [bold]git diff[/] to review changes if conflicts occur.\n"
+        )
 
     def _on_stage(t: Task, stage) -> None:
         status_color = {
@@ -738,6 +774,38 @@ def cancel(task_id: str, reason: str) -> None:
             f"  {len(task.stages)} stage(s) completed before cancellation.\n"
             f"  Use [bold]git diff[/] to review any code changes."
         )
+
+
+# ── priority ───────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id")
+@click.argument(
+    "level",
+    type=click.Choice(["critical", "high", "normal", "low"]),
+)
+def priority(task_id: str, level: str) -> None:
+    """Change task priority. Example: aqm priority T-A3F2B1 high"""
+    from aqm.core.task import TaskPriority
+
+    root = _require_project()
+    queue = _get_queue(root)
+
+    task = queue.get(task_id)
+    if not task:
+        console.print(f"[red]Error:[/] Task '{task_id}' not found.")
+        return
+
+    old_priority = task.priority.name
+    task.priority = TaskPriority[level]
+    task.touch()
+    queue.update(task)
+
+    console.print(
+        f"[green]✓[/] Priority changed: {task_id} "
+        f"[dim]{old_priority}[/] → [bold]{level}[/]"
+    )
 
 
 # ── agents ──────────────────────────────────────────────────────────────

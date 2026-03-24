@@ -43,12 +43,21 @@ class StageRecord(BaseModel):
     finished_at: Optional[datetime] = None
 
 
+class TaskPriority(int, Enum):
+    """Task execution priority. Lower number = higher priority."""
+    critical = 0
+    high = 1
+    normal = 2
+    low = 3
+
+
 class Task(BaseModel):
     """A task passed between agents through queues."""
 
     id: str = Field(default_factory=_generate_task_id)
     description: str
     status: TaskStatus = TaskStatus.pending
+    priority: TaskPriority = TaskPriority.normal
     current_agent_id: Optional[str] = None
     current_queue: Optional[str] = None
     stages: list[StageRecord] = Field(default_factory=list)

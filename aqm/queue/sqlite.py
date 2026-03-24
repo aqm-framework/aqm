@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     queue_name TEXT NOT NULL,
     status TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 2,
     data TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -23,6 +24,11 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE_INDEXES = """\
 CREATE INDEX IF NOT EXISTS idx_queue_status ON tasks(queue_name, status);
 CREATE INDEX IF NOT EXISTS idx_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_priority ON tasks(priority, created_at);
+"""
+
+MIGRATE_PRIORITY = """\
+ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;
 """
 
 
@@ -40,6 +46,11 @@ class SQLiteQueue(AbstractQueue):
 
     def _init_db(self) -> None:
         self._conn.executescript(CREATE_TABLE + CREATE_INDEXES)
+        # Migrate: add priority column if missing (existing DBs)
+        try:
+            self._conn.executescript(MIGRATE_PRIORITY)
+        except sqlite3.OperationalError:
+            pass  # column already exists
         self._conn.commit()
 
     def push(self, task: Task, queue_name: str) -> None:
@@ -47,12 +58,13 @@ class SQLiteQueue(AbstractQueue):
         task.touch()
         self._conn.execute(
             "INSERT OR REPLACE INTO tasks "
-            "(id, queue_name, status, data, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(id, queue_name, status, priority, data, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 task.id,
                 queue_name,
                 task.status.value,
+                task.priority.value,
                 task.model_dump_json(),
                 task.created_at.isoformat(),
                 task.updated_at.isoformat(),
@@ -63,7 +75,7 @@ class SQLiteQueue(AbstractQueue):
     def pop(self, queue_name: str) -> Optional[Task]:
         cursor = self._conn.execute(
             "SELECT data FROM tasks WHERE queue_name = ? AND status = ? "
-            "ORDER BY created_at ASC LIMIT 1",
+            "ORDER BY priority ASC, created_at ASC LIMIT 1",
             (queue_name, TaskStatus.pending.value),
         )
         row = cursor.fetchone()
@@ -90,11 +102,12 @@ class SQLiteQueue(AbstractQueue):
     def update(self, task: Task) -> None:
         task.touch()
         self._conn.execute(
-            "UPDATE tasks SET queue_name = ?, status = ?, data = ?, "
+            "UPDATE tasks SET queue_name = ?, status = ?, priority = ?, data = ?, "
             "updated_at = ? WHERE id = ?",
             (
                 task.current_queue or "",
                 task.status.value,
+                task.priority.value,
                 task.model_dump_json(),
                 task.updated_at.isoformat(),
                 task.id,
@@ -126,7 +139,7 @@ class SQLiteQueue(AbstractQueue):
             query += " AND queue_name = ?"
             params.append(queue_name)
 
-        query += " ORDER BY created_at DESC"
+        query += " ORDER BY priority ASC, created_at DESC"
         cursor = self._conn.execute(query, params)
         return [Task.model_validate_json(row[0]) for row in cursor.fetchall()]
 

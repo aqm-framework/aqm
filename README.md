@@ -1174,11 +1174,13 @@ aqm/
 ```bash
 git clone https://github.com/aqm-framework/aqm
 cd aqm
-pip install -e ".[dev]"
+pip install -e ".[dev,serve]"
 pytest tests/
 ```
 
-Creating and sharing pipelines is also a great contribution.
+We value **pipeline contributions equally to code contributions**. Creating a useful YAML pipeline, improving documentation, or fixing a bug — all are welcome.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide: setup, architecture overview, pipeline submission template, code style, and review process.
 
 ## License
 

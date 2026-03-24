@@ -13,6 +13,7 @@ This guide covers everything you need to get started.
 - Python 3.11 or higher
 - Claude Code CLI installed and authenticated (`npm install -g @anthropic-ai/claude-code && claude login`)
 - Git
+- (Optional) [GitHub CLI](https://cli.github.com/) (`gh`) — required for `aqm publish` to GitHub registry
 
 ### Setup
 
@@ -23,6 +24,9 @@ cd aqm
 
 # Install in development mode with dev dependencies
 pip install -e ".[dev]"
+
+# Install web dashboard extras (for working on the dashboard)
+pip install -e ".[serve]"
 
 # Verify everything works
 pytest tests/
@@ -38,8 +42,13 @@ aqm init
 # Run a pipeline
 aqm run "Hello world test"
 
-# Launch the web dashboard (requires serve extras)
-pip install -e ".[serve]"
+# Follow-up on a task (carries over context)
+aqm fix T-XXXXXX "Fix the issue"
+
+# Cancel a running task
+aqm cancel T-XXXXXX
+
+# Launch the web dashboard
 aqm serve
 ```
 
@@ -161,7 +170,7 @@ Before submitting a pipeline PR, verify:
 aqm/
 ├── core/
 │   ├── task.py           # Task, StageRecord, TaskStatus models
-│   ├── agent.py          # AgentDefinition, YAML parsing
+│   ├── agent.py          # AgentDefinition, params, extends, imports
 │   ├── pipeline.py       # Pipeline execution loop
 │   ├── gate.py           # LLMGate / HumanGate evaluation
 │   ├── context_file.py   # File-based context accumulation
@@ -173,10 +182,23 @@ aqm/
 │   └── file.py           # FileQueue (for testing)
 ├── runtime/
 │   ├── base.py           # AbstractRuntime interface
-│   ├── api.py            # Claude API runtime (text-only)
-│   └── claude_code.py    # Claude Code CLI runtime (full tools)
+│   ├── api.py            # Claude CLI runtime (text-only)
+│   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
 ├── web/
-│   └── app.py            # FastAPI web dashboard
+│   ├── app.py            # FastAPI app factory
+│   ├── templates.py      # Shared CSS/layout/helpers
+│   ├── pages/            # Page renderers
+│   │   ├── dashboard.py  #   Task list & pipeline run UI
+│   │   ├── agents.py     #   D3.js agent graph visualization
+│   │   ├── registry.py   #   Pipeline search, pull, publish
+│   │   ├── validate.py   #   YAML validation UI
+│   │   └── task_detail.py#   Stage timeline, gate actions, context viewer
+│   └── api/              # REST + SSE endpoints
+│       ├── tasks.py      #   Task CRUD, run, fix, cancel, approve/reject
+│       ├── registry.py   #   Registry search/pull/publish
+│       ├── validate.py   #   JSON Schema validation
+│       └── sse.py        #   Server-Sent Events for real-time progress
+├── registry.py           # GitHub-based pipeline registry
 └── cli.py                # Click CLI entry point
 ```
 
@@ -185,6 +207,29 @@ Key design decisions:
 - **Abstract base classes** for Queue and Runtime, making backends swappable
 - **Jinja2 templates** for system prompts and payload interpolation
 - **SQLite** as the default queue backend, requiring zero configuration
+- **SSE (Server-Sent Events)** for real-time pipeline progress in the web dashboard
+
+#### CLI commands reference
+
+When developing, these are the CLI commands available for testing:
+
+| Command | Description |
+|---------|-------------|
+| `aqm init` | Initialize `.aqm/` with interactive setup wizard |
+| `aqm run` | Create and run a task through the pipeline |
+| `aqm fix` | Follow-up on a previous task (carries over context) |
+| `aqm status` | View task status |
+| `aqm list` | List tasks with optional status filtering |
+| `aqm approve` | Approve a task waiting at a human gate |
+| `aqm reject` | Reject a task waiting at a human gate |
+| `aqm cancel` | Cancel a running or pending task |
+| `aqm agents` | Display agents and handoff graph |
+| `aqm context` | View task context.md |
+| `aqm validate` | Validate agents.yaml against JSON Schema |
+| `aqm serve` | Launch the web dashboard |
+| `aqm pull` | Pull pipeline from registry |
+| `aqm publish` | Publish pipeline to registry |
+| `aqm search` | Search for pipelines |
 
 #### Pull request process
 
@@ -199,12 +244,29 @@ Key design decisions:
 
 ---
 
+### Web Dashboard Contributions
+
+The web dashboard (`aqm serve`) provides all CLI features in a browser interface. It uses:
+- **FastAPI** for the backend
+- **Server-Sent Events (SSE)** for real-time pipeline progress
+- **D3.js** for the interactive agent graph
+- **Server-side HTML rendering** via `aqm/web/templates.py`
+
+Dashboard pages are in `aqm/web/pages/`, API endpoints in `aqm/web/api/`. To work on the dashboard:
+
+```bash
+pip install -e ".[serve]"
+cd /tmp/test-project && aqm init
+aqm serve
+# → http://localhost:8000
+```
+
 ### Documentation Contributions
 
 Documentation improvements are always welcome. Areas that currently need help:
 
 - **Docstrings:** Many public classes and methods in `aqm/core/` lack Google-style docstrings. Adding them is a great first contribution.
-- **Examples:** More real-world pipeline examples with detailed READMEs.
+- **Examples:** More real-world pipeline examples with detailed READMEs (see `examples/` for existing 10 pipelines).
 - **Tutorials:** Step-by-step guides for common use cases (content pipelines, data pipelines, support workflows).
 - **Architecture docs:** Deeper explanations of the routing engine, gate evaluation, and context accumulation system.
 
@@ -246,14 +308,15 @@ To contribute docs, follow the same PR process as code contributions.
 ### Tests
 
 - Tests are required for all new features and bug fixes
-- Use `pytest` with fixtures
+- Use `pytest` with fixtures (shared fixtures in `tests/conftest.py`)
 - Mock external calls (Claude CLI) rather than making real API requests
 - Place tests in `tests/` mirroring the source structure:
   ```
   tests/
-  ├── test_pipeline.py
-  ├── test_gate.py
-  ├── test_task.py
+  ├── conftest.py          # Shared fixtures
+  ├── test_pipeline.py     # Pipeline execution tests
+  ├── test_registry.py     # Registry pull/publish/search tests
+  ├── test_reusability.py  # Params, extends, imports tests
   └── ...
   ```
 
@@ -270,7 +333,7 @@ To contribute docs, follow the same PR process as code contributions.
 ### Code PRs
 
 - Standard code review process. At least one maintainer approval required.
-- CI must pass (tests, linting).
+- Ensure all tests pass locally (`pytest tests/`) before opening a PR.
 - For larger changes, open an issue first to discuss the approach before writing code.
 
 ### What to expect
