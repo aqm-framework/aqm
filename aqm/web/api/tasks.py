@@ -112,6 +112,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                 task, start_agent,
                 input_text=input_text,
                 on_stage_complete=on_stage_complete,
+                on_stage_start=on_stage_start,
                 on_output=on_output,
             )
 
@@ -450,12 +451,18 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
                 "gate_result": stage.gate_result,
             })
 
+        def on_stage_start(t, agent_id, stage_number):
+            broadcast_event(t.id, "stage_start", {
+                "agent_id": agent_id, "stage_number": stage_number,
+            })
+
         def on_output(line):
             broadcast_event(task_id, "stage_output", {"text": line})
 
         result = pipeline.resume_task(
             task_id, decision, reason,
             on_stage_complete=on_stage_complete,
+            on_stage_start=on_stage_start,
             on_output=on_output,
         )
 

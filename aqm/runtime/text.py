@@ -111,7 +111,12 @@ class TextRuntime(AbstractRuntime):
 
         lines: list[str] = []
         try:
-            for line in proc.stdout:
+            # Use readline() instead of iterator to avoid Python's 8KB
+            # read-ahead buffer which delays output until buffer fills.
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
                 lines.append(line)
                 try:
                     on_output(line.rstrip("\n"))

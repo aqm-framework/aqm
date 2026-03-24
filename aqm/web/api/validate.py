@@ -41,8 +41,10 @@ def create_validate_router(project_root: Path) -> APIRouter:
                 "yaml_content": content,
             }
 
-        # Load JSON Schema
-        schema_path = Path(__file__).resolve().parent.parent.parent.parent / "schema" / "agents-schema.json"
+        # Load JSON Schema — check package-internal path first, then project root
+        schema_path = Path(__file__).resolve().parent.parent / "schema" / "agents-schema.json"
+        if not schema_path.exists():
+            schema_path = Path(__file__).resolve().parent.parent.parent.parent / "schema" / "agents-schema.json"
         if not schema_path.exists():
             raise HTTPException(500, "JSON Schema file not found")
 
