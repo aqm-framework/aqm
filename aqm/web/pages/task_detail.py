@@ -56,37 +56,69 @@ async function gateAction(action) {{
     await apiFetch('/api/tasks/{esc(task.id)}/' + action, {{
       method:'POST', body:JSON.stringify({{reason:reason||undefined}})
     }});
-    showToast('Task ' + action + 'd');
-    setTimeout(() => location.reload(), 600);
+    showToast('Task ' + action + 'd — pipeline resuming...');
+    // Show live panel immediately instead of reloading
+    const titleEl = document.getElementById('liveTitle');
+    const statusEl = document.getElementById('liveStatus');
+    const outputEl = document.getElementById('liveOutput');
+    if (titleEl) {{
+      titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Resuming...';
+      statusEl.innerHTML = 'Loading next agent...';
+      if (outputEl) {{ outputEl.style.display = 'block'; outputEl.textContent = ''; }}
+    }} else {{
+      // Live panel not visible yet — reload to show it
+      setTimeout(() => location.reload(), 600);
+    }}
   }} catch(e) {{}}
 }}
 </script>"""
 
-    # Live progress panel (for in_progress tasks)
+    # Live progress panel (for in_progress or awaiting_gate tasks)
     live_panel = ""
-    if task.status == TaskStatus.in_progress:
+    show_live = task.status in (TaskStatus.in_progress, TaskStatus.awaiting_gate)
+    if show_live:
+        panel_title = "Pipeline Running" if task.status == TaskStatus.in_progress else "Awaiting Approval"
         live_panel = f"""\
 <div class="card" style="border-color:var(--accent);">
-  <h3><span class="live-dot"></span>Pipeline Running</h3>
+  <h3 id="liveTitle"><span class="live-dot"></span>{panel_title}</h3>
   <div class="progress-bar" style="margin-top:8px;"><div class="fill" id="progressFill" style="width:0%"></div></div>
   <div id="liveStatus" style="margin-top:8px;font-size:13px;color:var(--text-dim);"></div>
-  <button class="btn btn-red btn-sm" style="margin-top:12px;" onclick="cancelRunningTask()">Cancel</button>
+  <pre id="liveOutput" style="margin-top:12px;background:var(--surface2);border:1px solid var(--border);
+    border-radius:6px;padding:12px;font-size:12px;max-height:400px;overflow-y:auto;white-space:pre-wrap;
+    word-break:break-word;display:none;"></pre>
+  <button class="btn btn-red btn-sm" style="margin-top:12px;" id="cancelBtn" onclick="cancelRunningTask()">Cancel</button>
 </div>
 <script>
 (function() {{
   const es = new EventSource('/api/tasks/{esc(task.id)}/events');
   const statusEl = document.getElementById('liveStatus');
-  const fillEl = document.getElementById('progressFill');
+  const outputEl = document.getElementById('liveOutput');
+  const titleEl = document.getElementById('liveTitle');
   let stageCount = {len(task.stages)};
 
   es.addEventListener('stage_start', (e) => {{
     const d = JSON.parse(e.data);
+    titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Running';
     statusEl.innerHTML = '<span class="live-dot"></span>Stage ' + d.stage_number + ': <strong>' + d.agent_id + '</strong> running...';
+    outputEl.textContent = '';
+    outputEl.style.display = 'block';
+  }});
+  es.addEventListener('stage_output', (e) => {{
+    const d = JSON.parse(e.data);
+    outputEl.style.display = 'block';
+    outputEl.textContent += d.text + '\\n';
+    outputEl.scrollTop = outputEl.scrollHeight;
   }});
   es.addEventListener('stage_complete', (e) => {{
     const d = JSON.parse(e.data);
     stageCount++;
     statusEl.innerHTML = 'Stage ' + d.stage_number + ': <strong>' + d.agent_id + '</strong> — ' + (d.gate_result || 'done');
+  }});
+  es.addEventListener('pipeline_resuming', (e) => {{
+    titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Resuming...';
+    statusEl.innerHTML = 'Loading next agent...';
+    outputEl.textContent = '';
+    outputEl.style.display = 'block';
   }});
   es.addEventListener('gate_waiting', (e) => {{
     es.close();

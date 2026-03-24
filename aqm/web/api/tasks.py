@@ -105,10 +105,14 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                     "gate_result": stage.gate_result,
                 })
 
+            def on_output(line):
+                broadcast_event(task.id, "stage_output", {"text": line})
+
             result = pipe.run_task(
                 task, start_agent,
                 input_text=input_text,
                 on_stage_complete=on_stage_complete,
+                on_output=on_output,
             )
 
             if result.status == TaskStatus.awaiting_gate:
@@ -436,6 +440,8 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
         queue = SQLiteQueue(db_path)
         pipeline = Pipeline(agents, queue, project_root)
 
+        broadcast_event(task_id, "pipeline_resuming", {"decision": decision})
+
         def on_stage_complete(t, stage):
             broadcast_event(t.id, "stage_complete", {
                 "agent_id": stage.agent_id,
@@ -444,9 +450,13 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
                 "gate_result": stage.gate_result,
             })
 
+        def on_output(line):
+            broadcast_event(task_id, "stage_output", {"text": line})
+
         result = pipeline.resume_task(
             task_id, decision, reason,
             on_stage_complete=on_stage_complete,
+            on_output=on_output,
         )
 
         if result.status == TaskStatus.awaiting_gate:
