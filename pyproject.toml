@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aqm"
-version = "1.1.2"
+version = "1.2.0"
 description = "AI agent orchestration framework — build, share, and run YAML pipelines"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -54,7 +54,7 @@ packages = ["aqm"]
 artifacts = ["aqm/schema/*.json"]
 
 [tool.hatch.build.targets.sdist]
-include = ["aqm/", "schema/", "docs/", "examples/", "README.md", "LICENSE", "pyproject.toml"]
+include = ["aqm/", "schema/", "docs/", "README.md", "LICENSE", "pyproject.toml"]
 
 [project.scripts]
 aqm = "aqm.cli:cli"
