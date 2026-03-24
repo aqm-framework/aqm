@@ -242,6 +242,7 @@ class Pipeline:
         start_agent_id: str,
         input_text: str | None = None,
         on_stage_complete=None,
+        on_stage_start=None,
         on_output=None,
     ) -> Task:
         """Run a task through the pipeline.
@@ -251,6 +252,7 @@ class Pipeline:
             start_agent_id: Starting agent ID
             input_text: Input to pass to the first agent (uses task.description if None)
             on_stage_complete: Stage completion callback (task, stage_record)
+            on_stage_start: Stage start callback (task, agent_id, stage_number)
             on_output: Output line callback (line_text) for streaming
 
         Returns:
@@ -303,6 +305,9 @@ class Pipeline:
                 ),
                 input_text=current_input,
             )
+
+            if on_stage_start:
+                on_stage_start(task, agent.id, task.next_stage_number)
 
             try:
                 runtime = self._get_runtime(agent)
@@ -412,6 +417,7 @@ class Pipeline:
                         extra_agent_id,
                         input_text=extra_payload,
                         on_stage_complete=on_stage_complete,
+                        on_stage_start=on_stage_start,
                         on_output=on_output,
                     )
 
@@ -437,6 +443,7 @@ class Pipeline:
         decision: str,
         reason: str = "",
         on_stage_complete=None,
+        on_stage_start=None,
         on_output=None,
     ) -> Task:
         """Resume the pipeline after a human gate.
@@ -495,5 +502,6 @@ class Pipeline:
             next_agent_id,
             input_text=next_payload,
             on_stage_complete=on_stage_complete,
+            on_stage_start=on_stage_start,
             on_output=on_output,
         )

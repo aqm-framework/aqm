@@ -233,7 +233,10 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         lines: list[str] = []
         try:
-            for line in proc.stdout:
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
                 lines.append(line)
                 try:
                     on_output(line.rstrip("\n"))
