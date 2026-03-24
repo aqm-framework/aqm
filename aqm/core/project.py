@@ -127,6 +127,64 @@ def analyze_project(project_dir: Path) -> str:
     return result.stdout.strip()
 
 
+def deep_analyze_project(
+    project_dir: Path,
+    qa_context: str,
+    initial_analysis: str = "",
+) -> str:
+    """Run a targeted re-analysis of the project based on Q&A answers.
+
+    After the user answers clarifying questions, some answers may reference
+    specific files, configurations, or details not covered in the initial
+    broad analysis.  This function asks Claude to inspect the project for
+    those specific details.
+
+    Args:
+        project_dir: Project root directory.
+        qa_context: Formatted Q&A pairs from the clarifying questions step.
+        initial_analysis: The initial broad project analysis.
+
+    Returns:
+        Additional analysis findings, or empty string if nothing new.
+    """
+    prompt = f"""You already performed a broad analysis of this project:
+
+{initial_analysis}
+
+The user was asked clarifying questions and gave these answers:
+
+{qa_context}
+
+Based on the user's answers, investigate the project for SPECIFIC details that are now needed but were NOT covered in the initial analysis. For example:
+- If the user mentioned brand colors or design tokens → read tailwind.config.js, CSS variables, theme files and extract actual values
+- If the user mentioned specific APIs or services → find relevant config files, env vars, or integration code
+- If the user mentioned compliance/security standards → check existing auth middleware, validation patterns
+- If the user mentioned specific tools or workflows → find relevant configuration files
+
+IMPORTANT: Only investigate things that the user's answers make relevant. Do NOT repeat the initial analysis.
+
+If the user's answers don't require any additional project investigation, respond with exactly: NO_ADDITIONAL_ANALYSIS_NEEDED
+
+Otherwise, output your findings as concise bullet points."""
+
+    result = subprocess.run(
+        ["claude", "-p", prompt, "--print"],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        cwd=str(project_dir),
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return ""
+
+    output = result.stdout.strip()
+    if "NO_ADDITIONAL_ANALYSIS_NEEDED" in output:
+        return ""
+
+    return output
+
+
 def generate_clarifying_questions(
     description: str,
     project_analysis: str = "",
@@ -218,6 +276,7 @@ def generate_agents_yaml(
     description: str,
     project_dir: Path | None = None,
     qa_context: str = "",
+    deep_analysis: str = "",
     on_status: "Callable[[str], None] | None" = None,
 ) -> str:
     """Use Claude CLI to generate agents.yaml from a description and project context.
@@ -230,6 +289,7 @@ def generate_agents_yaml(
         description: User's description of the desired pipeline/automation.
         project_dir: Optional project directory to analyze for context.
         qa_context: Formatted Q&A string from clarifying questions.
+        deep_analysis: Additional targeted analysis based on Q&A answers.
 
     Returns:
         Generated YAML content string.
@@ -264,13 +324,23 @@ def generate_agents_yaml(
             f"handoff routing, and params:\n\n{qa_context}\n"
         )
 
+    # Build deep analysis section
+    deep_section = ""
+    if deep_analysis:
+        deep_section = (
+            f"\n## Targeted Project Analysis (based on user's answers)\n"
+            f"Additional details discovered from the project based on the user's requirements. "
+            f"Use these SPECIFIC values in agent system prompts and params:\n\n"
+            f"{deep_analysis}\n"
+        )
+
     prompt = f"""You are a YAML generator. You output ONLY valid YAML. No prose, no explanations, no markdown.
 
 TASK: Generate an aqm agents.yaml pipeline configuration.
 
 SPEC:
 {spec}
-{project_context}{qa_section}
+{project_context}{deep_section}{qa_section}
 USER REQUEST: {description}
 
 RULES:

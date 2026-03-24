@@ -28,6 +28,7 @@ from rich.table import Table
 
 from aqm.core.agent import load_agents
 from aqm.core.project import (
+    deep_analyze_project,
     find_project_root,
     generate_agents_yaml,
     generate_clarifying_questions,
@@ -330,9 +331,9 @@ def _init_from_ai(target: Path | None) -> None:
     ) if project_dir.exists() else False
 
     if has_project:
-        console.print(f"\n[dim]Analyzing project for: {description}...[/]")
         from aqm.core.project import analyze_project
-        analysis = analyze_project(project_dir)
+        with console.status("[bold cyan]Analyzing project...[/]", spinner="dots"):
+            analysis = analyze_project(project_dir)
         if analysis:
             console.print(f"\n[bold]Project analysis:[/]\n")
             console.print(f"[dim]{analysis}[/]\n")
@@ -341,9 +342,9 @@ def _init_from_ai(target: Path | None) -> None:
             has_project = False
 
     # Step 3: Generate clarifying questions and collect answers
-    console.print(f"\n[dim]Generating clarifying questions...[/]")
     project_analysis_text = analysis if has_project else ""
-    questions = generate_clarifying_questions(description, project_analysis_text)
+    with console.status("[bold cyan]Preparing questions...[/]", spinner="dots"):
+        questions = generate_clarifying_questions(description, project_analysis_text)
 
     qa_context = ""
     if questions:
@@ -373,25 +374,38 @@ def _init_from_ai(target: Path | None) -> None:
     else:
         console.print("[dim]No additional questions needed.[/]\n")
 
-    # Step 4: Generate YAML
-    if has_project:
-        console.print(
-            f"[dim]Generating agents.yaml with Claude "
-            f"(project analysis + your answers + YAML spec reference)...[/]"
-        )
-    else:
-        console.print(f"\n[dim]Generating agents.yaml with Claude (your answers + YAML spec)...[/]")
+    # Step 4: Targeted re-analysis based on Q&A answers
+    deep_analysis_text = ""
+    if has_project and qa_context:
+        with console.status("[bold cyan]Investigating project based on your answers...[/]", spinner="dots"):
+            deep_analysis_text = deep_analyze_project(
+                project_dir, qa_context, initial_analysis=analysis,
+            )
+        if deep_analysis_text:
+            console.print(f"\n[bold]Additional findings:[/]\n")
+            console.print(f"[dim]{deep_analysis_text}[/]\n")
+        else:
+            console.print("[dim]No additional investigation needed.[/]\n")
 
-    def _print_status(msg: str) -> None:
-        console.print(f"  [dim]{msg}[/]")
+    # Step 5: Generate YAML (with spinner)
+    gen_msg = (
+        "Generating agents.yaml (project analysis + your answers + YAML spec)..."
+        if has_project
+        else "Generating agents.yaml (your answers + YAML spec)..."
+    )
 
     try:
-        generated = generate_agents_yaml(
-            description,
-            project_dir=project_dir if has_project else None,
-            qa_context=qa_context,
-            on_status=_print_status,
-        )
+        with console.status(f"[bold cyan]{gen_msg}[/]", spinner="dots") as status:
+            def _update_status(msg: str) -> None:
+                status.update(f"[bold cyan]{msg}[/]")
+
+            generated = generate_agents_yaml(
+                description,
+                project_dir=project_dir if has_project else None,
+                qa_context=qa_context,
+                deep_analysis=deep_analysis_text,
+                on_status=_update_status,
+            )
     except Exception as e:
         console.print(f"[red]Generation failed:[/] {e}")
         console.print("[dim]Falling back to default template.[/]")
@@ -418,6 +432,7 @@ def _init_from_ai(target: Path | None) -> None:
                 refined,
                 project_dir=project_dir if has_project else None,
                 qa_context=qa_context,
+                deep_analysis=deep_analysis_text,
                 on_status=_print_status,
             )
             console.print("\n[bold]Regenerated agents.yaml:[/]\n")
