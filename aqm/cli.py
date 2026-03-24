@@ -282,14 +282,25 @@ def _init_from_ai(target: Path | None) -> None:
     """AI-generate agents.yaml from user description with project analysis."""
     project_dir = (Path(target) if target else Path.cwd()).resolve()
 
-    # Step 1: Analyze existing project if it has files
+    # Step 1: Get pipeline description first
+    console.print(
+        "\n[bold]Describe the pipeline you want to create.[/]\n"
+        "[dim]Examples:[/]\n"
+        '  [dim]"Code review pipeline with planning, implementation, and QA stages"[/]\n'
+        '  [dim]"Blog content pipeline: research → write → edit → SEO optimize"[/]\n'
+        '  [dim]"Customer support triage that routes to technical or billing agents"[/]\n'
+    )
+
+    description = click.prompt("  Pipeline description", type=str)
+
+    # Step 2: Analyze project (after description, so analysis can be contextual)
     has_project = any(
         p for p in project_dir.iterdir()
         if p.name not in {".git", ".aqm", "__pycache__", "node_modules", ".venv"}
     ) if project_dir.exists() else False
 
     if has_project:
-        console.print(f"\n[dim]Analyzing project at {project_dir}...[/]")
+        console.print(f"\n[dim]Analyzing project for: {description}...[/]")
         from aqm.core.project import analyze_project
         analysis = analyze_project(project_dir)
         if analysis:
@@ -299,19 +310,9 @@ def _init_from_ai(target: Path | None) -> None:
             console.print("[dim]Could not analyze project (continuing without context).[/]\n")
             has_project = False
 
-    console.print(
-        "[bold]Describe the pipeline you want to create.[/]\n"
-        "[dim]Examples:[/]\n"
-        '  [dim]"Code review pipeline with planning, implementation, and QA stages"[/]\n'
-        '  [dim]"Blog content pipeline: research → write → edit → SEO optimize"[/]\n'
-        '  [dim]"Customer support triage that routes to technical or billing agents"[/]\n'
-    )
-
-    description = click.prompt("  Pipeline description", type=str)
-
     if has_project:
         console.print(
-            f"\n[dim]Generating agents.yaml with Claude "
+            f"[dim]Generating agents.yaml with Claude "
             f"(project analysis + YAML spec reference)...[/]"
         )
     else:
