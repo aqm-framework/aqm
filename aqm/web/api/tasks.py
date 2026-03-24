@@ -73,10 +73,17 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         return SQLiteQueue(db_path)
 
     def _get_agents(cli_params=None, pipeline: str | None = None) -> dict[str, AgentDefinition]:
-        path = get_agents_yaml_path(project_root, pipeline)
-        if path.exists():
-            return load_agents(path, cli_params=cli_params)
-        return {}
+        try:
+            path = get_agents_yaml_path(project_root, pipeline)
+            if path.exists():
+                return load_agents(path, cli_params=cli_params)
+            return {}
+        except ValueError as exc:
+            raise HTTPException(
+                400,
+                f"Pipeline configuration error: {exc}. "
+                f"Set required parameters via --param key=value or .aqm/params.yaml.",
+            )
 
     def _run_pipeline_bg(task: Task, start_agent: str, input_text: str | None, cli_params=None, pipeline: str | None = None):
         """Run pipeline in a background thread with SSE broadcasting."""

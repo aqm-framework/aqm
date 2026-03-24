@@ -198,6 +198,7 @@ def render_agents(
     agents: dict[str, AgentDefinition],
     pipelines: list[str] | None = None,
     current_pipeline: str = "default",
+    agent_error: str | None = None,
 ) -> str:
     # Pipeline selector
     pipeline_selector = ""
@@ -213,8 +214,21 @@ def render_agents(
             f' style="max-width:300px;">{pipe_options}</select></div>'
         )
 
+    error_banner = ""
+    if agent_error:
+        error_banner = (
+            f'<div style="background:var(--surface2);border-left:4px solid var(--orange);'
+            f'padding:12px 16px;margin-bottom:16px;border-radius:6px;">'
+            f'<strong style="color:var(--orange);">⚠ Pipeline configuration error</strong>'
+            f'<p style="margin:6px 0 0;font-size:13px;opacity:.85;">{esc(agent_error)}</p>'
+            f'<p style="margin:6px 0 0;font-size:12px;opacity:.6;">'
+            f'Set required parameters via <code>--param key=value</code> on <code>aqm run</code>, '
+            f'or create a <code>.aqm/params.yaml</code> file.</p>'
+            f'</div>'
+        )
+
     if not agents:
-        body = '<div class="empty-state">No agents defined in this pipeline.</div>'
+        body = error_banner or '<div class="empty-state">No agents defined in this pipeline.</div>'
         return layout("Agents", f"<h1>Agent Pipeline</h1>\n{pipeline_selector}{body}", active="agents")
 
     graph_data = _build_graph_data(agents)

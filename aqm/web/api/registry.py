@@ -54,26 +54,8 @@ def create_registry_router(project_root: Path) -> APIRouter:
                     "source": "github",
                 })
 
-        # Bundled examples
-        seen = {r["name"] for r in results}
-        examples_dir = Path(__file__).resolve().parent.parent.parent / "examples"
-        if examples_dir.is_dir():
-            for d in sorted(examples_dir.iterdir()):
-                if d.is_dir() and (d / "agents.yaml").exists():
-                    if d.name not in seen:
-                        if not query or query.lower() in d.name.lower():
-                            results.append({
-                                "name": d.name,
-                                "description": "",
-                                "author": "",
-                                "version": "",
-                                "tags": [],
-                                "agents_count": 0,
-                                "source": "bundled",
-                            })
-                            seen.add(d.name)
-
         # Local registry
+        seen = {r["name"] for r in results}
         local_dir = Path.home() / ".aqm" / "registry"
         if local_dir.is_dir():
             for d in sorted(local_dir.iterdir()):
@@ -121,14 +103,6 @@ def create_registry_router(project_root: Path) -> APIRouter:
             if local_path.exists():
                 content = local_path.read_text(encoding="utf-8")
                 source = "local"
-
-        # Bundled
-        if content is None:
-            examples_dir = Path(__file__).resolve().parent.parent.parent / "examples"
-            bundled_path = examples_dir / req.pipeline_name / "agents.yaml"
-            if bundled_path.exists():
-                content = bundled_path.read_text(encoding="utf-8")
-                source = "bundled"
 
         if content is None:
             raise HTTPException(404, f"Pipeline '{req.pipeline_name}' not found")
