@@ -207,12 +207,14 @@ The wizard offers three setup methods:
 |--------|-------------|
 | **[1] Default template** | Start with a basic planner→executor pipeline. Edit `agents.yaml` to customize. |
 | **[2] Pull from registry** | Browse and install pipelines from bundled examples or local registry. |
-| **[3] AI-generate** | Describe your desired pipeline in plain language and Claude generates the YAML — always referencing the full [YAML spec](docs/spec.md) for correctness. |
+| **[3] AI-generate** | Describe your desired pipeline in plain language and Claude generates the YAML — always referencing the full [YAML spec](docs/spec.md) for correctness. **If run inside an existing project, Claude first analyzes the tech stack** (languages, frameworks, test tools, etc.) and tailors the pipeline accordingly. |
 
 **AI-generate example:**
 
 ```bash
+$ cd my-react-app
 $ aqm init
+
 How would you like to set up your pipeline?
 
   [1] Create default template
@@ -221,16 +223,38 @@ How would you like to set up your pipeline?
 
   Choice: 3
 
-  Pipeline description: Code review pipeline with planning, review gate,
-  implementation, and automated QA testing
+  Analyzing project at /Users/you/my-react-app...
 
-  Generating agents.yaml with Claude (referencing YAML spec)...
+  Project analysis:
+  - Language: TypeScript
+  - Framework: React 18 + Next.js 14
+  - Package manager: pnpm
+  - Testing: Vitest + Playwright
+  - CI/CD: GitHub Actions
+  - Styling: Tailwind CSS
+
+  Pipeline description: Feature development pipeline with code review
+  and automated testing
+
+  Generating agents.yaml with Claude (project analysis + YAML spec reference)...
 
   Generated agents.yaml:
   ─────────────────────────────────────
   apiVersion: aqm/v0.1
   agents:
     - id: planner
+      system_prompt: |
+        You are a senior Next.js/React architect...
+      ...
+    - id: developer
+      runtime: claude_code
+      mcp:
+        - github
+      ...
+    - id: qa
+      runtime: claude_code
+      system_prompt: |
+        Run Vitest unit tests and Playwright e2e tests...
       ...
   ─────────────────────────────────────
 

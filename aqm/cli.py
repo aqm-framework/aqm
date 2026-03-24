@@ -279,9 +279,28 @@ def _init_from_registry(target: Path | None) -> None:
 
 
 def _init_from_ai(target: Path | None) -> None:
-    """AI-generate agents.yaml from user description."""
+    """AI-generate agents.yaml from user description with project analysis."""
+    project_dir = (Path(target) if target else Path.cwd()).resolve()
+
+    # Step 1: Analyze existing project if it has files
+    has_project = any(
+        p for p in project_dir.iterdir()
+        if p.name not in {".git", ".aqm", "__pycache__", "node_modules", ".venv"}
+    ) if project_dir.exists() else False
+
+    if has_project:
+        console.print(f"\n[dim]Analyzing project at {project_dir}...[/]")
+        from aqm.core.project import analyze_project
+        analysis = analyze_project(project_dir)
+        if analysis:
+            console.print(f"\n[bold]Project analysis:[/]\n")
+            console.print(f"[dim]{analysis}[/]\n")
+        else:
+            console.print("[dim]Could not analyze project (continuing without context).[/]\n")
+            has_project = False
+
     console.print(
-        "\n[bold]Describe the pipeline you want to create.[/]\n"
+        "[bold]Describe the pipeline you want to create.[/]\n"
         "[dim]Examples:[/]\n"
         '  [dim]"Code review pipeline with planning, implementation, and QA stages"[/]\n'
         '  [dim]"Blog content pipeline: research → write → edit → SEO optimize"[/]\n'
@@ -290,10 +309,19 @@ def _init_from_ai(target: Path | None) -> None:
 
     description = click.prompt("  Pipeline description", type=str)
 
-    console.print(f"\n[dim]Generating agents.yaml with Claude (referencing YAML spec)...[/]")
+    if has_project:
+        console.print(
+            f"\n[dim]Generating agents.yaml with Claude "
+            f"(project analysis + YAML spec reference)...[/]"
+        )
+    else:
+        console.print(f"\n[dim]Generating agents.yaml with Claude (referencing YAML spec)...[/]")
 
     try:
-        generated = generate_agents_yaml(description)
+        generated = generate_agents_yaml(
+            description,
+            project_dir=project_dir if has_project else None,
+        )
     except Exception as e:
         console.print(f"[red]Generation failed:[/] {e}")
         console.print("[dim]Falling back to default template.[/]")
@@ -313,11 +341,13 @@ def _init_from_ai(target: Path | None) -> None:
     )
 
     if action == 2:
-        # Allow refining the description
         refined = click.prompt("  Refined description (or press Enter to retry)", default=description)
         console.print(f"\n[dim]Regenerating...[/]")
         try:
-            generated = generate_agents_yaml(refined)
+            generated = generate_agents_yaml(
+                refined,
+                project_dir=project_dir if has_project else None,
+            )
             console.print("\n[bold]Regenerated agents.yaml:[/]\n")
             console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
             if not click.confirm("\n  Use this pipeline?", default=True):

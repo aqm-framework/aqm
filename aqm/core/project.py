@@ -83,11 +83,56 @@ def _load_spec() -> str:
     )
 
 
-def generate_agents_yaml(description: str) -> str:
-    """Use Claude CLI to generate agents.yaml from a natural language description.
+def analyze_project(project_dir: Path) -> str:
+    """Analyze the existing project to extract tech stack and structure.
+
+    Uses Claude CLI to scan the project directory and produce a summary
+    of languages, frameworks, tools, and directory structure.
+
+    Args:
+        project_dir: Root directory of the project to analyze.
+
+    Returns:
+        Project analysis summary string.
+    """
+    analysis_prompt = (
+        "Analyze this project directory and produce a concise summary. Include:\n"
+        "- Primary language(s) and frameworks\n"
+        "- Build tools and package managers (package.json, pyproject.toml, etc.)\n"
+        "- Project structure (key directories and their purpose)\n"
+        "- Testing frameworks in use\n"
+        "- CI/CD configuration if present\n"
+        "- Any notable tools or services (databases, APIs, etc.)\n\n"
+        "Be concise — bullet points only, no prose."
+    )
+
+    result = subprocess.run(
+        ["claude", "-p", analysis_prompt, "--print"],
+        capture_output=True,
+        text=True,
+        timeout=90,
+        cwd=str(project_dir),
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return ""
+
+    return result.stdout.strip()
+
+
+def generate_agents_yaml(
+    description: str,
+    project_dir: Path | None = None,
+) -> str:
+    """Use Claude CLI to generate agents.yaml from a description and project context.
+
+    When project_dir is provided, the project is analyzed first and the
+    analysis is included in the generation prompt so the resulting pipeline
+    is tailored to the actual tech stack.
 
     Args:
         description: User's description of the desired pipeline/automation.
+        project_dir: Optional project directory to analyze for context.
 
     Returns:
         Generated YAML content string.
@@ -97,13 +142,28 @@ def generate_agents_yaml(description: str) -> str:
     """
     spec = _load_spec()
 
+    # Build project context section
+    project_context = ""
+    if project_dir:
+        analysis = analyze_project(project_dir)
+        if analysis:
+            project_context = (
+                f"\n## Existing Project Analysis\n"
+                f"The pipeline will be used in a project with the following characteristics:\n"
+                f"{analysis}\n\n"
+                f"Tailor the pipeline to this project's tech stack. For example:\n"
+                f"- Use appropriate MCP servers for the detected tools\n"
+                f"- Reference the project's test framework in QA agents\n"
+                f"- Match the project's language/framework in system prompts\n"
+            )
+
     prompt = f"""You are an expert at creating aqm pipeline configurations.
 
 Based on the user's description, generate a valid agents.yaml file.
 
 ## YAML Specification Reference
 {spec}
-
+{project_context}
 ## User's Pipeline Description
 {description}
 
@@ -135,7 +195,6 @@ Based on the user's description, generate a valid agents.yaml file.
     # Strip markdown fences if present
     if generated.startswith("```"):
         lines = generated.split("\n")
-        # Remove first and last fence lines
         if lines[0].startswith("```"):
             lines = lines[1:]
         if lines and lines[-1].strip() == "```":
