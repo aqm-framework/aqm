@@ -537,6 +537,14 @@ RULES:
    Use newlines or markdown headings inside the string to separate sections:
      payload: "## Feature Plan\n{{{{ output }}}}\n\n## Design Report\n{{{{ agents.design_auditor.output }}}}"
 10. Available Jinja2 template variables for payload: {{{{ output }}}}, {{{{ input }}}}, {{{{ reject_reason }}}}, {{{{ gate_result }}}}
+11. CRITICAL: Every pipeline MUST end with a code execution agent (runtime: claude_code) that implements the plan.
+    Planning/analysis agents (runtime: text) produce documents. The final agent MUST actually modify source code.
+    The developer/executor agent should:
+    - Use runtime: claude_code
+    - Have MCP filesystem server attached
+    - Have a system_prompt that instructs it to implement the plan by editing actual files
+    - Use claude_code_flags to restrict tools if needed (e.g. ["--allowedTools", "Edit,Write,Bash,Read"])
+    A pipeline that only produces documents without a code execution agent is INCOMPLETE.
     Do NOT use {{{{ params.X }}}} or {{{{ agents.X.output }}}} in payload — these are not supported. Only the four variables above are available.
 
 IMPORTANT: Your entire response must be parseable as YAML. Do not write anything before or after the YAML."""
