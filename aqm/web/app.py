@@ -1,4 +1,4 @@
-"""Web UI dashboard for agent-queue — FastAPI + embedded HTML templates."""
+"""Web UI dashboard for aqm — FastAPI + embedded HTML templates."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from agent_queue.core.agent import AgentDefinition, load_agents
-from agent_queue.core.context_file import ContextFile
-from agent_queue.core.project import get_agents_yaml_path, get_db_path, get_tasks_dir
-from agent_queue.core.task import Task, TaskStatus
-from agent_queue.queue.sqlite import SQLiteQueue
+from aqm.core.agent import AgentDefinition, load_agents
+from aqm.core.context_file import ContextFile
+from aqm.core.project import get_agents_yaml_path, get_db_path, get_tasks_dir
+from aqm.core.task import Task, TaskStatus
+from aqm.queue.sqlite import SQLiteQueue
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ def _layout(title: str, body: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{title} - Agent Queue</title>
+  <title>{title} - aqm</title>
   <style>{_CSS}</style>
 </head>
 <body>
@@ -295,7 +295,7 @@ document.getElementById('createTaskForm').addEventListener('submit', async (e) =
 
 def _render_agents(agents: dict[str, AgentDefinition]) -> str:
     if not agents:
-        body = '<div class="empty-state">No agents defined. Create .agent-queue/agents.yaml first.</div>'
+        body = '<div class="empty-state">No agents defined. Create .aqm/agents.yaml first.</div>'
         return _layout("Agents", f"<h1>Agent Diagram</h1>\n{body}")
 
     # Agent nodes
@@ -473,12 +473,12 @@ async function gateAction(action) {{
 # ---------------------------------------------------------------------------
 
 def create_app(project_root: Path) -> FastAPI:
-    """Create and return a FastAPI application for the agent-queue dashboard.
+    """Create and return a FastAPI application for the aqm dashboard.
 
     Args:
-        project_root: Path to the project root containing .agent-queue/
+        project_root: Path to the project root containing .aqm/
     """
-    app = FastAPI(title="Agent Queue Dashboard", docs_url="/docs")
+    app = FastAPI(title="aqm Dashboard", docs_url="/docs")
 
     project_root = Path(project_root).resolve()
     db_path = get_db_path(project_root)

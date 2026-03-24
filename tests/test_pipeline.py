@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_queue.core.agent import AgentDefinition, load_agents
-from agent_queue.core.context import build_payload, build_prompt, render_template
-from agent_queue.core.context_file import ContextFile
-from agent_queue.core.gate import GateResult, LLMGate
-from agent_queue.core.project import find_project_root, init_project
-from agent_queue.core.task import Task, TaskStatus
-from agent_queue.queue.file import FileQueue
+from aqm.core.agent import AgentDefinition, load_agents
+from aqm.core.context import build_payload, build_prompt, render_template
+from aqm.core.context_file import ContextFile
+from aqm.core.gate import GateResult, LLMGate
+from aqm.core.project import find_project_root, init_project
+from aqm.core.task import Task, TaskStatus
+from aqm.queue.file import FileQueue
 
 
 # ── Task ────────────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ class TestAgentYAML:
                 }
             ]
         }
-        yaml_path = tmp_project / ".agent-queue" / "agents.yaml"
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
         yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
 
         with pytest.raises(ValueError, match="does not exist"):
@@ -90,7 +90,7 @@ class TestAgentYAML:
                 {"id": "dup", "name": "B", "runtime": "api"},
             ]
         }
-        yaml_path = tmp_project / ".agent-queue" / "agents.yaml"
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
         yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
 
         with pytest.raises(ValueError, match="Duplicate agent ID"):
@@ -111,7 +111,7 @@ class TestAgentYAML:
                 }
             ]
         }
-        yaml_path = tmp_project / ".agent-queue" / "agents.yaml"
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
         yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
 
         agents = load_agents(yaml_path)
@@ -301,9 +301,9 @@ class TestContextFile:
 class TestProject:
     def test_init_project(self, tmp_path):
         root = init_project(tmp_path)
-        assert (root / ".agent-queue").is_dir()
-        assert (root / ".agent-queue" / "agents.yaml").exists()
-        assert (root / ".agent-queue" / "tasks").is_dir()
+        assert (root / ".aqm").is_dir()
+        assert (root / ".aqm" / "agents.yaml").exists()
+        assert (root / ".aqm" / "tasks").is_dir()
 
     def test_find_project_root(self, tmp_project):
         found = find_project_root(tmp_project)
@@ -358,7 +358,7 @@ class TestGate:
 
 class TestHandoffRouting:
     def test_auto_handoff_parse_single(self):
-        from agent_queue.core.pipeline import Pipeline
+        from aqm.core.pipeline import Pipeline
 
         pipeline = Pipeline.__new__(Pipeline)
         pipeline.agents = {"dev": True, "qa": True}
@@ -368,7 +368,7 @@ class TestHandoffRouting:
         assert targets == ["dev"]
 
     def test_auto_handoff_parse_multi(self):
-        from agent_queue.core.pipeline import Pipeline
+        from aqm.core.pipeline import Pipeline
 
         pipeline = Pipeline.__new__(Pipeline)
         targets = pipeline._parse_auto_handoff_targets(
@@ -377,7 +377,7 @@ class TestHandoffRouting:
         assert targets == ["dev", "qa"]
 
     def test_auto_handoff_parse_multiple_lines(self):
-        from agent_queue.core.pipeline import Pipeline
+        from aqm.core.pipeline import Pipeline
 
         pipeline = Pipeline.__new__(Pipeline)
         targets = pipeline._parse_auto_handoff_targets(
@@ -386,7 +386,7 @@ class TestHandoffRouting:
         assert targets == ["dev", "qa"]
 
     def test_auto_handoff_dedup(self):
-        from agent_queue.core.pipeline import Pipeline
+        from aqm.core.pipeline import Pipeline
 
         pipeline = Pipeline.__new__(Pipeline)
         targets = pipeline._parse_auto_handoff_targets(
@@ -395,7 +395,7 @@ class TestHandoffRouting:
         assert targets == ["dev", "qa"]
 
     def test_auto_handoff_case_insensitive(self):
-        from agent_queue.core.pipeline import Pipeline
+        from aqm.core.pipeline import Pipeline
 
         pipeline = Pipeline.__new__(Pipeline)
         targets = pipeline._parse_auto_handoff_targets("handoff: dev")
@@ -417,7 +417,7 @@ class TestHandoffRouting:
                 {"id": "b", "name": "B", "runtime": "api"},
             ]
         }
-        yaml_path = tmp_project / ".agent-queue" / "agents.yaml"
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
         yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
 
         agents = load_agents(yaml_path)

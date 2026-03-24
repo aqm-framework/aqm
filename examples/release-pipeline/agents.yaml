@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "Prepare release for v2.4.0 from main branch"
+#   aqm run --input "Prepare release for v2.4.0 from main branch"
 # =============================================================================
 
 params:

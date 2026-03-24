@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "Optimize: /blog/posts/getting-started-with-kubernetes.md"
+#   aqm run --input "Optimize: /blog/posts/getting-started-with-kubernetes.md"
 # =============================================================================
 
 params:

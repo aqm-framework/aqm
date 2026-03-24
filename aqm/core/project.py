@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-AGENT_QUEUE_DIR = ".agent-queue"
+AQM_DIR = ".aqm"
 AGENTS_YAML = "agents.yaml"
 
 DEFAULT_AGENTS_YAML = """\
@@ -37,18 +37,18 @@ agents:
 
 
 def find_project_root(start: Path | None = None) -> Path | None:
-    """Traverse parent directories to find the .agent-queue/ directory."""
+    """Traverse parent directories to find the .aqm/ directory."""
     current = (start or Path.cwd()).resolve()
     for parent in [current, *current.parents]:
-        if (parent / AGENT_QUEUE_DIR).is_dir():
+        if (parent / AQM_DIR).is_dir():
             return parent
     return None
 
 
 def init_project(path: Path | None = None) -> Path:
-    """Create the .agent-queue/ directory and default agents.yaml."""
+    """Create the .aqm/ directory and default agents.yaml."""
     root = (path or Path.cwd()).resolve()
-    aq_dir = root / AGENT_QUEUE_DIR
+    aq_dir = root / AQM_DIR
 
     aq_dir.mkdir(exist_ok=True)
     (aq_dir / "tasks").mkdir(exist_ok=True)
@@ -61,12 +61,12 @@ def init_project(path: Path | None = None) -> Path:
 
 
 def get_agents_yaml_path(root: Path) -> Path:
-    return root / AGENT_QUEUE_DIR / AGENTS_YAML
+    return root / AQM_DIR / AGENTS_YAML
 
 
 def get_tasks_dir(root: Path) -> Path:
-    return root / AGENT_QUEUE_DIR / "tasks"
+    return root / AQM_DIR / "tasks"
 
 
 def get_db_path(root: Path) -> Path:
-    return root / AGENT_QUEUE_DIR / "queue.db"
+    return root / AQM_DIR / "queue.db"

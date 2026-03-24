@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from agent_queue.core.agent import AgentDefinition
-from agent_queue.core.task import Task
+from aqm.core.agent import AgentDefinition
+from aqm.core.task import Task
 
 
 class AbstractRuntime(ABC):

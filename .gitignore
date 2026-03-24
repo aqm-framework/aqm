@@ -8,5 +8,5 @@ build/
 venv/
 .env
 *.db
-.agent-queue/queue.db
-.agent-queue/tasks/
+.aqm/queue.db
+.aqm/tasks/

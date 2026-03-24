@@ -1,6 +1,6 @@
 # Core Concepts
 
-This document describes the eight foundational concepts of **agent-queue (aqm)**. Each concept maps to a concrete data structure or mechanism in the codebase, and every concept is illustrated with a real `agents.yaml` snippet you can copy into your own pipelines.
+This document describes the eight foundational concepts of **aqm (aqm)**. Each concept maps to a concrete data structure or mechanism in the codebase, and every concept is illustrated with a real `agents.yaml` snippet you can copy into your own pipelines.
 
 ---
 
@@ -8,9 +8,9 @@ This document describes the eight foundational concepts of **agent-queue (aqm)**
 
 **Definition:** The unit of work that flows through the pipeline, carrying its description, status, stage history, and metadata from the first agent to the last.
 
-**How it works:** A Task is a Pydantic model identified by a short hash ID in `T-XXXXXX` format. When you run `agent-queue run --input "..."`, the system creates a Task whose `description` field holds your input text. As the task moves through agents, each execution is recorded as a `StageRecord` appended to the task's `stages` list. The task tracks which agent currently owns it (`current_agent_id`) and which queue it sits on (`current_queue`).
+**How it works:** A Task is a Pydantic model identified by a short hash ID in `T-XXXXXX` format. When you run `aqm run --input "..."`, the system creates a Task whose `description` field holds your input text. As the task moves through agents, each execution is recorded as a `StageRecord` appended to the task's `stages` list. The task tracks which agent currently owns it (`current_agent_id`) and which queue it sits on (`current_queue`).
 
-A task's `status` field follows a well-defined lifecycle: `pending` -> `in_progress` -> (optionally) `awaiting_gate` -> `completed` or `failed`. The `awaiting_gate` state is special -- it means the pipeline has paused because a human gate requires manual approval. Once a human issues `agent-queue approve` or `agent-queue reject`, the pipeline resumes from where it left off.
+A task's `status` field follows a well-defined lifecycle: `pending` -> `in_progress` -> (optionally) `awaiting_gate` -> `completed` or `failed`. The `awaiting_gate` state is special -- it means the pipeline has paused because a human gate requires manual approval. Once a human issues `aqm approve` or `aqm reject`, the pipeline resumes from where it left off.
 
 Each StageRecord captures the stage number, the agent that ran, the input and output text, the gate decision (if any), the reject reason, and start/finish timestamps. This gives you a complete audit trail of every decision the pipeline made. The task also stores a `context_dir` path pointing to the directory where the context file and individual stage files live on disk.
 
@@ -19,7 +19,7 @@ Tasks also carry a free-form `metadata` dictionary. The pipeline uses this for i
 **Example:**
 ```yaml
 # A task is created implicitly when you run the CLI:
-#   agent-queue run --input "Add OAuth2 authentication"
+#   aqm run --input "Add OAuth2 authentication"
 #
 # Internally, the Task object looks like:
 #   Task(
@@ -61,7 +61,7 @@ The queue also acts as the single source of truth for task state. Every time an 
 #   queue.push(task, "reviewer")  # after handoff, task enters reviewer's queue
 #
 # To see tasks waiting for human approval:
-#   agent-queue list --status awaiting_gate
+#   aqm list --status awaiting_gate
 ```
 
 **Comparison:**
@@ -116,7 +116,7 @@ agents:
 
 An **LLM gate** evaluates the output automatically by calling the Claude CLI with a system prompt that instructs it to respond with a JSON decision. The LLM gate's `prompt` field is rendered with template variables and prepended to the evaluation request, so you can express domain-specific quality criteria like "Is this specification complete?" or "Is this fix safe to deploy to production?" The LLM gate always returns a decision immediately.
 
-A **human gate** pauses the pipeline entirely. When the pipeline encounters a human gate, it sets the task status to `awaiting_gate` and returns control to the caller. The task remains in this state until a human runs `agent-queue approve T-XXXXXX` or `agent-queue reject T-XXXXXX --reason "..."`. The `resume_task` method on the Pipeline then picks up where it left off, evaluating handoff conditions based on the human's decision.
+A **human gate** pauses the pipeline entirely. When the pipeline encounters a human gate, it sets the task status to `awaiting_gate` and returns control to the caller. The task remains in this state until a human runs `aqm approve T-XXXXXX` or `aqm reject T-XXXXXX --reason "..."`. The `resume_task` method on the Pipeline then picks up where it left off, evaluating handoff conditions based on the human's decision.
 
 The gate result feeds directly into handoff condition evaluation. An `on_approve` handoff fires only when the gate approved; `on_reject` fires only when the gate rejected. The `on_pass` condition fires when either no gate exists or the gate approved, making it useful for optional-gate scenarios. This tight coupling between gates and handoffs is what enables reverse feedback loops: reject the output, and the task loops back to a previous agent with the rejection reason embedded in the payload.
 
@@ -188,7 +188,7 @@ agents:
 
 **Definition:** A file-based accumulation mechanism that records the full history of a task's execution in a human-readable `context.md` file, providing shared memory across agents.
 
-**How it works:** Each task gets its own directory under `.agent-queue/tasks/<task-id>/`. Inside this directory, the `ContextFile` manager maintains a `context.md` file that grows with every stage. Each time an agent completes (or fails, or hits a gate), a new section is appended to `context.md` with the stage number, agent ID, task name, timestamp, status, input text, and output text. If the gate rejected the output, the rejection reason is included as well.
+**How it works:** Each task gets its own directory under `.aqm/tasks/<task-id>/`. Inside this directory, the `ContextFile` manager maintains a `context.md` file that grows with every stage. Each time an agent completes (or fails, or hits a gate), a new section is appended to `context.md` with the stage number, agent ID, task name, timestamp, status, input text, and output text. If the gate rejected the output, the rejection reason is included as well.
 
 In addition to the cumulative `context.md`, each stage is also saved as an individual file (`stage_01_planner.md`, `stage_02_reviewer.md`, etc.) for targeted access. A `current_payload.md` file holds the most recent handoff payload, giving agents quick access to their immediate input without parsing the full context.
 
@@ -321,7 +321,7 @@ agents:
 
 The building blocks for the Registry already exist in the codebase. The `imports` mechanism in `agents.yaml` allows you to pull agent definitions from external YAML files. The `extends` and `abstract` keywords let you define base agents that others can inherit from and customize. The `params` system with `${{ params.X }}` substitution means a published template can expose configuration knobs without requiring users to edit the YAML internals. Together, these features form the composability layer that the Registry will build upon.
 
-The envisioned workflow is: `agent-queue registry search "code review"` to find published pipelines, `agent-queue registry install @author/code-review-pipeline` to download the YAML into your project, and then override parameters via `--param` flags or a local `params.yaml` file. Authors would publish with `agent-queue registry publish`, and the Registry would handle versioning, dependency resolution, and discoverability.
+The envisioned workflow is: `aqm registry search "code review"` to find published pipelines, `aqm registry install @author/code-review-pipeline` to download the YAML into your project, and then override parameters via `--param` flags or a local `params.yaml` file. Authors would publish with `aqm registry publish`, and the Registry would handle versioning, dependency resolution, and discoverability.
 
 The Registry is designed to address a gap in the current agent framework landscape. While LangChain Hub exists for prompt templates and CrewAI has some community examples, no framework offers a first-class package manager for complete multi-agent pipeline definitions. The combination of YAML-only definitions, parameterization, and imports makes aqm pipelines uniquely suited to this kind of sharing.
 
@@ -329,11 +329,11 @@ The Registry is designed to address a gap in the current agent framework landsca
 ```yaml
 # Future usage (planned):
 #
-#   agent-queue registry install @acme/code-review-pipeline
+#   aqm registry install @acme/code-review-pipeline
 #
 # This would create agents.yaml with:
 imports:
-  - from: .agent-queue/registry/acme/code-review-pipeline/agents.yaml
+  - from: .aqm/registry/acme/code-review-pipeline/agents.yaml
     agents: [diff_loader, security, performance, style, summarizer]
 
 params:

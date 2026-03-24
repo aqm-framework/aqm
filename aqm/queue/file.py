@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from agent_queue.core.task import Task, TaskStatus
-from agent_queue.queue.base import AbstractQueue
+from aqm.core.task import Task, TaskStatus
+from aqm.queue.base import AbstractQueue
 
 # Monotonically increasing counter to ensure file ordering
 _push_counter = 0

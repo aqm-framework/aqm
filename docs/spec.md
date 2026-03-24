@@ -2,9 +2,9 @@
 
 ## Overview
 
-This document defines the **agents.yaml** configuration format used by agent-queue (aqm) pipelines. It specifies the structure, fields, types, defaults, and processing semantics for pipeline definition files.
+This document defines the **agents.yaml** configuration format used by aqm (aqm) pipelines. It specifies the structure, fields, types, defaults, and processing semantics for pipeline definition files.
 
-**This specification is independent of any particular runtime.** While the reference implementation is the `agent-queue` CLI and Python SDK, any conforming runtime can load and execute an agents.yaml file. The JSON Schema at `schema/agents-schema.json` provides machine-readable validation.
+**This specification is independent of any particular runtime.** While the reference implementation is the `aqm` CLI and Python SDK, any conforming runtime can load and execute an agents.yaml file. The JSON Schema at `schema/agents-schema.json` provides machine-readable validation.
 
 ### Goals
 
@@ -99,7 +99,7 @@ params:
 
 **Resolution priority** (highest first):
 1. CLI overrides (`--param key=value`)
-2. Override file (`.agent-queue/params.yaml`)
+2. Override file (`.aqm/params.yaml`)
 3. Default values from param definitions
 
 ---

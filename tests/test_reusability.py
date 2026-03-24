@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_queue.core.agent import (
+from aqm.core.agent import (
     AgentDefinition,
     ParamDefinition,
     load_agents,
@@ -133,7 +133,7 @@ class TestParamsIntegration:
     def test_full_param_pipeline(self, tmp_path):
         """End-to-end: params declared, substituted, agents loaded."""
         root = tmp_path
-        aq_dir = root / ".agent-queue"
+        aq_dir = root / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -177,7 +177,7 @@ class TestParamsIntegration:
 
     def test_params_with_overrides_file(self, tmp_path):
         root = tmp_path
-        aq_dir = root / ".agent-queue"
+        aq_dir = root / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -210,7 +210,7 @@ class TestParamsIntegration:
 
 class TestExtends:
     def test_basic_extends(self, tmp_path):
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -248,7 +248,7 @@ class TestExtends:
         assert "Review CODE" in cr.system_prompt
 
     def test_extends_nonexistent_raises(self, tmp_path):
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -269,7 +269,7 @@ class TestExtends:
 
     def test_abstract_without_extends(self, tmp_path):
         """Abstract agents without children are just excluded."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -296,7 +296,7 @@ class TestExtends:
 
     def test_extends_non_abstract_parent(self, tmp_path):
         """Extends works even if parent is not abstract."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -330,7 +330,7 @@ class TestExtends:
 
 class TestImports:
     def test_basic_import(self, tmp_path):
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -377,7 +377,7 @@ class TestImports:
 
     def test_import_selective(self, tmp_path):
         """Only import specified agent IDs."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -404,7 +404,7 @@ class TestImports:
         assert "not_wanted" not in agents
 
     def test_import_file_not_found(self, tmp_path):
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -422,7 +422,7 @@ class TestImports:
 
     def test_import_with_extends(self, tmp_path):
         """Import a base agent and extend it locally."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -466,7 +466,7 @@ class TestImports:
 class TestCombinedFeatures:
     def test_params_with_extends(self, tmp_path):
         """Params + extends together."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -496,7 +496,7 @@ class TestCombinedFeatures:
 
     def test_params_with_imports(self, tmp_path):
         """Params substituted in imported file paths work after import."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 
@@ -527,7 +527,7 @@ class TestCombinedFeatures:
 
     def test_auto_name_from_id(self, tmp_path):
         """Agent name auto-filled from id when not provided."""
-        aq_dir = tmp_path / ".agent-queue"
+        aq_dir = tmp_path / ".aqm"
         aq_dir.mkdir(parents=True)
         (aq_dir / "tasks").mkdir()
 

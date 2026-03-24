@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "New hire: Jane Smith, Senior Engineer, Platform team, starts 2026-04-01"
+#   aqm run --input "New hire: Jane Smith, Senior Engineer, Platform team, starts 2026-04-01"
 # =============================================================================
 
 params:

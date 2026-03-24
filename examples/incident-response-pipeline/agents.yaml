@@ -12,7 +12,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "API latency spike: p99 jumped from 200ms to 5s"
+#   aqm run --input "API latency spike: p99 jumped from 200ms to 5s"
 # =============================================================================
 
 params:

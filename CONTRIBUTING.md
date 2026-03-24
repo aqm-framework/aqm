@@ -1,6 +1,6 @@
-# Contributing to agent-queue
+# Contributing to aqm
 
-Thank you for your interest in contributing to agent-queue. This project values **pipeline contributions equally to code contributions**. If you create a useful YAML pipeline, that is just as meaningful as a pull request that touches Python source.
+Thank you for your interest in contributing to aqm. This project values **pipeline contributions equally to code contributions**. If you create a useful YAML pipeline, that is just as meaningful as a pull request that touches Python source.
 
 This guide covers everything you need to get started.
 
@@ -18,8 +18,8 @@ This guide covers everything you need to get started.
 
 ```bash
 # Clone the repository
-git clone https://github.com/smoveth/agent-queue.git
-cd agent-queue
+git clone https://github.com/smoveth/aqm.git
+cd aqm
 
 # Install in development mode with dev dependencies
 pip install -e ".[dev]"
@@ -33,14 +33,14 @@ pytest tests/
 ```bash
 # Initialize in a test project
 mkdir /tmp/test-project && cd /tmp/test-project
-agent-queue init
+aqm init
 
 # Run a pipeline
-agent-queue run "Hello world test"
+aqm run "Hello world test"
 
 # Launch the web dashboard (requires serve extras)
 pip install -e ".[serve]"
-agent-queue serve
+aqm serve
 ```
 
 ---
@@ -49,7 +49,7 @@ agent-queue serve
 
 ### Pipeline Contributions
 
-Pipelines are the core of the agent-queue ecosystem. A well-designed YAML pipeline that solves a real problem is a first-class contribution.
+Pipelines are the core of the aqm ecosystem. A well-designed YAML pipeline that solves a real problem is a first-class contribution.
 
 #### How to create a pipeline
 
@@ -67,7 +67,7 @@ Pipelines are the core of the agent-queue ecosystem. A well-designed YAML pipeli
    - `extends` / `abstract` for DRY agent definitions
    - `condition: auto` when the agent should decide routing dynamically
 
-3. Test your pipeline end-to-end with `agent-queue run`.
+3. Test your pipeline end-to-end with `aqm run`.
 
 4. Write a README that explains what the pipeline does, what domain it serves, and how to customize it via params.
 
@@ -158,7 +158,7 @@ Before submitting a pipeline PR, verify:
 #### Architecture overview
 
 ```
-agent_queue/
+aqm/
 ├── core/
 │   ├── task.py           # Task, StageRecord, TaskStatus models
 │   ├── agent.py          # AgentDefinition, YAML parsing
@@ -203,7 +203,7 @@ Key design decisions:
 
 Documentation improvements are always welcome. Areas that currently need help:
 
-- **Docstrings:** Many public classes and methods in `agent_queue/core/` lack Google-style docstrings. Adding them is a great first contribution.
+- **Docstrings:** Many public classes and methods in `aqm/core/` lack Google-style docstrings. Adding them is a great first contribution.
 - **Examples:** More real-world pipeline examples with detailed READMEs.
 - **Tutorials:** Step-by-step guides for common use cases (content pipelines, data pipelines, support workflows).
 - **Architecture docs:** Deeper explanations of the routing engine, gate evaluation, and context accumulation system.
@@ -287,4 +287,4 @@ To contribute docs, follow the same PR process as code contributions.
 - Start a GitHub Discussion for questions or ideas
 - Tag your issue with `question` if you need help getting started
 
-We are glad to have you here. Every contribution -- whether a pipeline, a bug fix, a test, or a typo correction -- makes agent-queue better for everyone.
+We are glad to have you here. Every contribution -- whether a pipeline, a bug fix, a test, or a typo correction -- makes aqm better for everyone.

@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from agent_queue.core.task import Task, TaskStatus
+from aqm.core.task import Task, TaskStatus
 
 
 class AbstractQueue(ABC):

@@ -15,9 +15,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
-from agent_queue.core.agent import GateConfig
-from agent_queue.core.context import render_template
-from agent_queue.core.task import Task
+from aqm.core.agent import GateConfig
+from aqm.core.context import render_template
+from aqm.core.task import Task
 
 logger = logging.getLogger(__name__)
 

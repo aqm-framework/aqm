@@ -12,9 +12,9 @@ import shutil
 import subprocess
 from typing import Any
 
-from agent_queue.core.agent import AgentDefinition
-from agent_queue.core.task import Task
-from agent_queue.runtime.base import AbstractRuntime
+from aqm.core.agent import AgentDefinition
+from aqm.core.task import Task
+from aqm.runtime.base import AbstractRuntime
 
 logger = logging.getLogger(__name__)
 

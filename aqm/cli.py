@@ -1,18 +1,18 @@
 """CLI — Click-based command-line interface.
 
-agent-queue init       Initialize project
-agent-queue run        Run pipeline
-agent-queue status     Query task status
-agent-queue list       List tasks
-agent-queue approve    Approve human gate
-agent-queue reject     Reject human gate
-agent-queue agents     List agents
-agent-queue context    View task context
-agent-queue validate   Validate agents.yaml against JSON Schema
-agent-queue serve      Run web dashboard
-agent-queue pull       Pull pipeline from registry
-agent-queue publish    Publish pipeline to registry
-agent-queue search     Search registry
+aqm init       Initialize project
+aqm run        Run pipeline
+aqm status     Query task status
+aqm list       List tasks
+aqm approve    Approve human gate
+aqm reject     Reject human gate
+aqm agents     List agents
+aqm context    View task context
+aqm validate   Validate agents.yaml against JSON Schema
+aqm serve      Run web dashboard
+aqm pull       Pull pipeline from registry
+aqm publish    Publish pipeline to registry
+aqm search     Search registry
 """
 
 from __future__ import annotations
@@ -25,15 +25,15 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from agent_queue.core.agent import load_agents
-from agent_queue.core.project import (
+from aqm.core.agent import load_agents
+from aqm.core.project import (
     find_project_root,
     get_agents_yaml_path,
     get_db_path,
     get_tasks_dir,
     init_project,
 )
-from agent_queue.core.task import Task, TaskStatus
+from aqm.core.task import Task, TaskStatus
 
 console = Console()
 
@@ -43,15 +43,15 @@ def _require_project() -> Path:
     root = find_project_root()
     if root is None:
         console.print(
-            "[red]Error:[/] Cannot find .agent-queue/ directory.\n"
-            "Please run 'agent-queue init' first.",
+            "[red]Error:[/] Cannot find .aqm/ directory.\n"
+            "Please run 'aqm init' first.",
         )
         sys.exit(1)
     return root
 
 
 def _get_queue(root: Path):
-    from agent_queue.queue.sqlite import SQLiteQueue
+    from aqm.queue.sqlite import SQLiteQueue
 
     return SQLiteQueue(get_db_path(root))
 
@@ -59,7 +59,7 @@ def _get_queue(root: Path):
 @click.group()
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging")
 def cli(verbose: bool) -> None:
-    """agent-queue — AI agent orchestration framework"""
+    """aqm — AI agent orchestration framework"""
     level = logging.DEBUG if verbose else logging.WARNING
     logging.basicConfig(
         level=level,
@@ -79,11 +79,11 @@ def cli(verbose: bool) -> None:
     help="Directory to initialize (default: current directory)",
 )
 def init(path: str | None) -> None:
-    """Initialize .agent-queue/ in the current project."""
+    """Initialize .aqm/ in the current project."""
     target = Path(path) if path else None
     root = init_project(target)
     agents_yaml = get_agents_yaml_path(root)
-    console.print(f"[green]✓[/] .agent-queue/ initialization complete")
+    console.print(f"[green]✓[/] .aqm/ initialization complete")
     console.print(f"  Config file: {agents_yaml}")
     console.print(
         f"\n[dim]Edit agents.yaml to configure your pipeline.[/]"
@@ -103,7 +103,7 @@ def init(path: str | None) -> None:
     help="Parameter override in key=value format (repeatable)",
 )
 def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
-    """Run pipeline. Example: agent-queue run 'Build a login feature'"""
+    """Run pipeline. Example: aqm run 'Build a login feature'"""
     root = _require_project()
 
     # Parse --param key=value pairs into a dict
@@ -128,7 +128,7 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
 
     start_agent = agent or next(iter(agents))
 
-    from agent_queue.core.pipeline import Pipeline
+    from aqm.core.pipeline import Pipeline
 
     pipeline = Pipeline(agents, queue, root)
 
@@ -164,8 +164,8 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
     elif result.status == TaskStatus.awaiting_gate:
         console.print(
             f"[yellow]⏸ Awaiting gate[/] {result.id}\n"
-            f"  Proceed with 'agent-queue approve {result.id}' or "
-            f"'agent-queue reject {result.id} -r \"reason\"'."
+            f"  Proceed with 'aqm approve {result.id}' or "
+            f"'aqm reject {result.id} -r \"reason\"'."
         )
     elif result.status == TaskStatus.failed:
         console.print(f"[red]✗ Failed[/] {result.id}")
@@ -297,7 +297,7 @@ def approve(task_id: str, reason: str) -> None:
     agents = load_agents(get_agents_yaml_path(root))
     queue = _get_queue(root)
 
-    from agent_queue.core.pipeline import Pipeline
+    from aqm.core.pipeline import Pipeline
 
     pipeline = Pipeline(agents, queue, root)
 
@@ -317,7 +317,7 @@ def reject(task_id: str, reason: str) -> None:
     agents = load_agents(get_agents_yaml_path(root))
     queue = _get_queue(root)
 
-    from agent_queue.core.pipeline import Pipeline
+    from aqm.core.pipeline import Pipeline
 
     pipeline = Pipeline(agents, queue, root)
 
@@ -388,7 +388,7 @@ def context(task_id: str) -> None:
 @click.argument(
     "path",
     type=click.Path(exists=True),
-    default=".agent-queue/agents.yaml",
+    default=".aqm/agents.yaml",
     required=False,
 )
 def validate(path: str) -> None:
@@ -519,12 +519,12 @@ def serve(port: int, host: str) -> None:
     root = _require_project()
 
     console.print(
-        f"[green]agent-queue dashboard[/] → http://{host}:{port}\n"
+        f"[green]aqm dashboard[/] → http://{host}:{port}\n"
         f"[dim]Press Ctrl+C to stop[/]"
     )
 
     try:
-        from agent_queue.web.app import create_app
+        from aqm.web.app import create_app
 
         app = create_app(root)
 
@@ -534,14 +534,14 @@ def serve(port: int, host: str) -> None:
     except ImportError:
         console.print(
             "[yellow]Additional packages are required to run the web dashboard:[/]\n"
-            "  pip install agent-queue[serve]"
+            "  pip install aqm[serve]"
         )
 
 
 # ── pull / publish / search (registry) ──────────────────────────────────
 
 
-REGISTRY_URL = "https://registry.agent-queue.dev"
+REGISTRY_URL = "https://registry.aqm.dev"
 
 
 @cli.command()
@@ -591,7 +591,7 @@ def search(query: str) -> None:
     # TODO: Integrate with actual registry API
     console.print(
         f"[yellow]Registry feature will be available in v0.3.[/]\n"
-        f"  Community pipelines: https://github.com/topics/agent-queue-pipeline"
+        f"  Community pipelines: https://github.com/topics/aqm-pipeline"
     )
 
 

@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "Review the SaaS vendor agreement at /contracts/vendor-2026-q1.pdf"
+#   aqm run --input "Review the SaaS vendor agreement at /contracts/vendor-2026-q1.pdf"
 # =============================================================================
 
 params:

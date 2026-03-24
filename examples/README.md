@@ -1,6 +1,6 @@
 # aqm Registry — Seed Pipelines
 
-Ten ready-to-use agent pipelines that showcase the key differentiators of **agent-queue (aqm)**. Each pipeline is a complete `agents.yaml` you can customize via `params:` and run immediately.
+Ten ready-to-use agent pipelines that showcase the key differentiators of **aqm (aqm)**. Each pipeline is a complete `agents.yaml` you can customize via `params:` and run immediately.
 
 ---
 
@@ -20,7 +20,7 @@ End-to-end feature development: plan a spec, review it (LLM gate), implement in 
 | Params | `project_language`, `test_framework`, `review_strictness`, `target_branch` |
 
 ```bash
-agent-queue run examples/software-feature-pipeline --input "Add OAuth2 login"
+aqm run examples/software-feature-pipeline --input "Add OAuth2 login"
 ```
 
 ---
@@ -37,7 +37,7 @@ Research, write, edit, and publish content. The editor runs an LLM gate; rejecte
 | Params | `tone`, `audience`, `word_count`, `content_type`, `publish_platform` |
 
 ```bash
-agent-queue run examples/content-pipeline --input "Guide to microservices"
+aqm run examples/content-pipeline --input "Guide to microservices"
 ```
 
 ---
@@ -55,7 +55,7 @@ Loads a PR diff and fans out to three parallel reviewers — security, performan
 | Params | `repo`, `language`, `security_focus`, `performance_threshold`, `style_guide` |
 
 ```bash
-agent-queue run examples/code-review-pipeline --input "https://github.com/org/repo/pull/42"
+aqm run examples/code-review-pipeline --input "https://github.com/org/repo/pull/42"
 ```
 
 ---
@@ -73,7 +73,7 @@ Classifies tickets, then an auto-router agent decides which specialist handles i
 | Params | `company_name`, `support_tone`, `sla_response_minutes`, `escalation_threshold` |
 
 ```bash
-agent-queue run examples/customer-support-pipeline --input "I was charged twice"
+aqm run examples/customer-support-pipeline --input "I was charged twice"
 ```
 
 ---
@@ -91,7 +91,7 @@ Collect data from a database, clean it, analyze for patterns, and generate an ex
 | Params | `database`, `output_format`, `date_range`, `confidence_level`, `report_audience` |
 
 ```bash
-agent-queue run examples/data-analysis-pipeline --input "Q4 sales trends by region"
+aqm run examples/data-analysis-pipeline --input "Q4 sales trends by region"
 ```
 
 ---
@@ -110,7 +110,7 @@ Detect and triage an incident, auto-route by severity (SEV1-2 to critical respon
 | Params | `service_name`, `environment`, `on_call_team`, `runbook_path`, `notification_channel` |
 
 ```bash
-agent-queue run examples/incident-response-pipeline --input "API p99 latency spike to 5s"
+aqm run examples/incident-response-pipeline --input "API p99 latency spike to 5s"
 ```
 
 ---
@@ -128,7 +128,7 @@ Provision accounts, assign resources, then fan-out IT and HR setup in parallel. 
 | Params | `company_name`, `department`, `default_tools`, `onboarding_buddy_program`, `probation_days` |
 
 ```bash
-agent-queue run examples/onboarding-pipeline --input "New hire: Jane Smith, Senior Engineer, starts 2026-04-01"
+aqm run examples/onboarding-pipeline --input "New hire: Jane Smith, Senior Engineer, starts 2026-04-01"
 ```
 
 ---
@@ -147,7 +147,7 @@ Extract key terms, summarize in plain English, flag risks (LLM gate), and route 
 | Params | `jurisdiction`, `company_name`, `contract_type`, `risk_tolerance`, `legal_team_email` |
 
 ```bash
-agent-queue run examples/legal-review-pipeline --input "Review /contracts/vendor-2026-q1.pdf"
+aqm run examples/legal-review-pipeline --input "Review /contracts/vendor-2026-q1.pdf"
 ```
 
 ---
@@ -166,7 +166,7 @@ Generate a changelog from git history, bump versions, run the test suite (LLM ga
 | Params | `repo`, `version_strategy`, `release_branch`, `deploy_target`, `required_test_coverage` |
 
 ```bash
-agent-queue run examples/release-pipeline --input "Prepare release v2.4.0"
+aqm run examples/release-pipeline --input "Prepare release v2.4.0"
 ```
 
 ---
@@ -185,7 +185,7 @@ Analyze a blog post for SEO weaknesses, rewrite with optimizations, fan-out read
 | Params | `target_keyword`, `secondary_keywords`, `target_word_count`, `reading_level`, `target_seo_score` |
 
 ```bash
-agent-queue run examples/blog-seo-pipeline --input "/blog/posts/kubernetes-tutorial.md"
+aqm run examples/blog-seo-pipeline --input "/blog/posts/kubernetes-tutorial.md"
 ```
 
 ---

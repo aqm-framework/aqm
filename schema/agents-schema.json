@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://agent-queue.dev/schema/agents-schema.json",
+  "$id": "https://aqm.dev/schema/agents-schema.json",
   "title": "agents.yaml",
-  "description": "Schema for agent-queue (aqm) pipeline configuration files. Defines agents, their handoffs, gates, MCP servers, and parameterization.",
+  "description": "Schema for aqm (aqm) pipeline configuration files. Defines agents, their handoffs, gates, MCP servers, and parameterization.",
   "type": "object",
   "required": ["apiVersion", "agents"],
   "additionalProperties": false,
@@ -198,7 +198,7 @@
           "type": "string",
           "enum": ["llm", "human"],
           "default": "llm",
-          "description": "Gate type. \"llm\" uses an LLM to auto-review. \"human\" pauses the pipeline and waits for manual approval via CLI (agent-queue approve/reject)."
+          "description": "Gate type. \"llm\" uses an LLM to auto-review. \"human\" pauses the pipeline and waits for manual approval via CLI (aqm approve/reject)."
         },
         "prompt": {
           "type": "string",

@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "Analyze Q4 sales trends by region and product category"
+#   aqm run --input "Analyze Q4 sales trends by region and product category"
 # =============================================================================
 
 params:

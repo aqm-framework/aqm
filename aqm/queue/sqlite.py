@@ -6,8 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from agent_queue.core.task import Task, TaskStatus
-from agent_queue.queue.base import AbstractQueue
+from aqm.core.task import Task, TaskStatus
+from aqm.queue.base import AbstractQueue
 
 CREATE_TABLE = """\
 CREATE TABLE IF NOT EXISTS tasks (

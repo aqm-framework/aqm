@@ -11,9 +11,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from agent_queue.core.agent import AgentDefinition, MCPServerConfig
-from agent_queue.core.task import Task
-from agent_queue.runtime.base import AbstractRuntime
+from aqm.core.agent import AgentDefinition, MCPServerConfig
+from aqm.core.task import Task
+from aqm.runtime.base import AbstractRuntime
 
 logger = logging.getLogger(__name__)
 

@@ -180,7 +180,7 @@ def resolve_params(
 
     Priority (highest first):
       1. CLI overrides (--param key=value)
-      2. Overrides file (.agent-queue/params.yaml)
+      2. Overrides file (.aqm/params.yaml)
       3. Default values from param definitions
 
     Returns a dict of {param_name: resolved_value}.
@@ -204,7 +204,7 @@ def resolve_params(
             raise ValueError(
                 f"Required parameter '{name}' is not set. "
                 f"Provide it via --param {name}=<value> or in "
-                f".agent-queue/params.yaml.\n"
+                f".aqm/params.yaml.\n"
                 f"  Description: {param_def.description}"
             )
         else:
@@ -382,8 +382,8 @@ def load_agents(
     # Look for overrides file
     overrides_file = base_dir / "params.yaml"
     if not overrides_file.exists():
-        # Also check .agent-queue/params.yaml from project root
-        project_params = base_dir.parent / ".agent-queue" / "params.yaml"
+        # Also check .aqm/params.yaml from project root
+        project_params = base_dir.parent / ".aqm" / "params.yaml"
         if project_params.exists():
             overrides_file = project_params
 

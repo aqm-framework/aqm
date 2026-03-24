@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "Add user authentication with OAuth2"
+#   aqm run --input "Add user authentication with OAuth2"
 # =============================================================================
 
 params:

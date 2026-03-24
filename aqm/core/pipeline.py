@@ -15,21 +15,21 @@ from typing import Optional
 
 import copy
 
-from agent_queue.core.agent import AgentDefinition, Handoff, load_agents
-from agent_queue.core.context import build_payload, build_prompt
-from agent_queue.core.context_file import ContextFile
-from agent_queue.core.gate import (
+from aqm.core.agent import AgentDefinition, Handoff, load_agents
+from aqm.core.context import build_payload, build_prompt
+from aqm.core.context_file import ContextFile
+from aqm.core.gate import (
     AbstractGate,
     GateResult,
     HumanGate,
     LLMGate,
 )
-from agent_queue.core.project import get_tasks_dir
-from agent_queue.core.task import StageRecord, Task, TaskStatus
-from agent_queue.queue.base import AbstractQueue
-from agent_queue.runtime.api import APIRuntime
-from agent_queue.runtime.base import AbstractRuntime
-from agent_queue.runtime.claude_code import ClaudeCodeRuntime
+from aqm.core.project import get_tasks_dir
+from aqm.core.task import StageRecord, Task, TaskStatus
+from aqm.queue.base import AbstractQueue
+from aqm.runtime.api import APIRuntime
+from aqm.runtime.base import AbstractRuntime
+from aqm.runtime.claude_code import ClaudeCodeRuntime
 
 logger = logging.getLogger(__name__)
 

@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_queue.core.agent import AgentDefinition, load_agents
-from agent_queue.core.project import init_project
-from agent_queue.core.task import Task
-from agent_queue.queue.file import FileQueue
-from agent_queue.runtime.base import AbstractRuntime
+from aqm.core.agent import AgentDefinition, load_agents
+from aqm.core.project import init_project
+from aqm.core.task import Task
+from aqm.queue.file import FileQueue
+from aqm.runtime.base import AbstractRuntime
 
 
 class MockRuntime(AbstractRuntime):
@@ -82,7 +82,7 @@ def sample_agents_yaml(tmp_project: Path) -> Path:
             },
         ]
     }
-    yaml_path = tmp_project / ".agent-queue" / "agents.yaml"
+    yaml_path = tmp_project / ".aqm" / "agents.yaml"
     yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
     return yaml_path
 
@@ -94,7 +94,7 @@ def sample_agents(sample_agents_yaml: Path) -> dict[str, AgentDefinition]:
 
 @pytest.fixture
 def file_queue(tmp_project: Path) -> FileQueue:
-    queue_dir = tmp_project / ".agent-queue" / "file-queue"
+    queue_dir = tmp_project / ".aqm" / "file-queue"
     return FileQueue(queue_dir)
 
 

@@ -11,7 +11,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "https://github.com/org/repo/pull/42"
+#   aqm run --input "https://github.com/org/repo/pull/42"
 # =============================================================================
 
 params:

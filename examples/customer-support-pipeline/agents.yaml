@@ -12,7 +12,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "I was charged twice for my subscription last month"
+#   aqm run --input "I was charged twice for my subscription last month"
 # =============================================================================
 
 params:

@@ -10,7 +10,7 @@
 #   - ${{ params.X }} parameterization
 #
 # Usage:
-#   agent-queue run --input "Write a guide on microservices best practices"
+#   aqm run --input "Write a guide on microservices best practices"
 # =============================================================================
 
 params:

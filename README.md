@@ -1,4 +1,4 @@
-# agent-queue
+# aqm
 
 An orchestration framework where multiple AI agents pass tasks through **explicit queues** in sequence.
 
@@ -13,38 +13,38 @@ Build pipelines in YAML. Share them with anyone. Run them locally.
 
 ## Powered by Claude Code
 
-agent-queue uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `api` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
+aqm uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `api` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
 
 - **`api` runtime** — Calls `claude -p <prompt> --print` for pure text generation (planning, reviewing, summarizing)
 - **`claude_code` runtime** — Runs Claude Code CLI with full tool access (file read/write, code execution, MCP tools)
 - **LLM Gate** — Also uses the Claude CLI for automatic approve/reject evaluation
 
-> **Prerequisite:** Install Claude Code CLI and authenticate before using agent-queue.
+> **Prerequisite:** Install Claude Code CLI and authenticate before using aqm.
 > ```bash
 > npm install -g @anthropic-ai/claude-code
 > claude login
 > ```
 
-## Why agent-queue?
+## Why aqm?
 
 Multi-agent frameworks have come in two flavors:
 
 - **Code-based** (LangGraph, AutoGen) — hard to share pipelines
 - **Cloud platforms** (CrewAI Studio, Vertex AI) — costly, vendor lock-in
 
-agent-queue takes a different path:
+aqm takes a different path:
 
 **Declare pipelines in a single YAML file. Anyone can create them, anyone can use them — an open ecosystem.**
 
 ```bash
 # Use a community-built pipeline instantly
-agent-queue pull software-dev-pipeline
+aqm pull software-dev-pipeline
 
 # Share your pipeline with the ecosystem
-agent-queue publish my-pipeline
+aqm publish my-pipeline
 ```
 
-| Existing approach | agent-queue |
+| Existing approach | aqm |
 |---|---|
 | Single agent does everything | Role separation per agent, handoff via queues |
 | Direct calls between agents | Queue is the contract — loose coupling |
@@ -56,7 +56,7 @@ agent-queue publish my-pipeline
 ## Install
 
 ```bash
-pip install agent-queue
+pip install aqm
 ```
 
 > Requires Python 3.11+.
@@ -66,13 +66,13 @@ pip install agent-queue
 ```bash
 # Initialize in an existing project
 cd my-project
-agent-queue init
+aqm init
 
 # Run a pipeline
-agent-queue run "Add JWT authentication to login"
+aqm run "Add JWT authentication to login"
 
 # Open the dashboard
-agent-queue serve
+aqm serve
 # → http://localhost:8000
 ```
 
@@ -83,7 +83,7 @@ No Redis. No Docker. No cloud account. **Just SQLite.**
 ### 1. Declare agents and connections in YAML
 
 ```yaml
-# .agent-queue/agents.yaml
+# .aqm/agents.yaml
 
 agents:
   - id: planner
@@ -167,7 +167,7 @@ Handoffs support three routing strategies:
 Each time a task passes through an agent, the result is appended to `context.md`. The next agent reads this file to understand the full history.
 
 ```
-.agent-queue/tasks/T-A3F2B1/
+.aqm/tasks/T-A3F2B1/
 ├── context.md           ← Full history (human-readable)
 ├── stage_01_planner.md
 ├── stage_02_reviewer.md
@@ -187,36 +187,36 @@ Attach MCP servers to any agent so it can **act**, not just generate text.
 
 ## CLI Reference
 
-### `agent-queue init`
+### `aqm init`
 
-Initialize `.agent-queue/` in the current project directory.
+Initialize `.aqm/` in the current project directory.
 
 ```bash
-agent-queue init
-agent-queue init --path /path/to/project
+aqm init
+aqm init --path /path/to/project
 ```
 
 Creates:
 ```
-.agent-queue/
+.aqm/
 ├── agents.yaml    ← Pipeline configuration (edit this)
 ├── tasks/         ← Task context directories (auto-generated)
 └── queue.db       ← SQLite queue (auto-generated)
 ```
 
-### `agent-queue run`
+### `aqm run`
 
 Create a task and run it through the pipeline.
 
 ```bash
 # Basic usage
-agent-queue run "Build a login feature"
+aqm run "Build a login feature"
 
 # Specify starting agent
-agent-queue run "Fix the payment bug" --agent developer
+aqm run "Fix the payment bug" --agent developer
 
 # With verbose logging
-agent-queue -v run "Add user registration"
+aqm -v run "Add user registration"
 ```
 
 Output:
@@ -234,20 +234,20 @@ Output:
 If a human gate is encountered:
 ```
 ⏸ Awaiting gate T-A3F2B1
-  Proceed with 'agent-queue approve T-A3F2B1' or
-  'agent-queue reject T-A3F2B1 -r "reason"'.
+  Proceed with 'aqm approve T-A3F2B1' or
+  'aqm reject T-A3F2B1 -r "reason"'.
 ```
 
-### `agent-queue status`
+### `aqm status`
 
 View task status.
 
 ```bash
 # Summary of all tasks
-agent-queue status
+aqm status
 
 # Detailed view of a specific task
-agent-queue status T-A3F2B1
+aqm status T-A3F2B1
 ```
 
 Detailed output:
@@ -262,44 +262,44 @@ T-A3F2B1  Add JWT authentication
   stage 2: reviewer [rejected] (missing security requirements)
 ```
 
-### `agent-queue list`
+### `aqm list`
 
 List tasks with optional status filtering.
 
 ```bash
 # All tasks
-agent-queue list
+aqm list
 
 # Filter by status
-agent-queue list --filter completed
-agent-queue list --filter failed
-agent-queue list --filter awaiting_gate
-agent-queue list --filter pending
+aqm list --filter completed
+aqm list --filter failed
+aqm list --filter awaiting_gate
+aqm list --filter pending
 ```
 
-### `agent-queue approve`
+### `aqm approve`
 
 Approve a task waiting at a human gate.
 
 ```bash
-agent-queue approve T-A3F2B1
-agent-queue approve T-A3F2B1 -r "Looks good, proceed with implementation"
+aqm approve T-A3F2B1
+aqm approve T-A3F2B1 -r "Looks good, proceed with implementation"
 ```
 
-### `agent-queue reject`
+### `aqm reject`
 
 Reject a task waiting at a human gate. Reason is required.
 
 ```bash
-agent-queue reject T-A3F2B1 -r "Missing error handling for edge cases"
+aqm reject T-A3F2B1 -r "Missing error handling for edge cases"
 ```
 
-### `agent-queue agents`
+### `aqm agents`
 
 Display all agents and their handoff graph.
 
 ```bash
-agent-queue agents
+aqm agents
 ```
 
 Output:
@@ -318,25 +318,25 @@ Agent Pipeline
     → qa (always)
 ```
 
-### `agent-queue context`
+### `aqm context`
 
 Print the full `context.md` for a task.
 
 ```bash
-agent-queue context T-A3F2B1
+aqm context T-A3F2B1
 ```
 
-### `agent-queue serve`
+### `aqm serve`
 
 Launch the local web dashboard.
 
 ```bash
-agent-queue serve
-agent-queue serve --port 3000
-agent-queue serve --host 0.0.0.0 --port 8080
+aqm serve
+aqm serve --port 3000
+aqm serve --host 0.0.0.0 --port 8080
 ```
 
-Requires: `pip install agent-queue[serve]`
+Requires: `pip install aqm[serve]`
 
 Dashboard features:
 - **Task list** — status, current agent, elapsed time
@@ -344,35 +344,35 @@ Dashboard features:
 - **Task detail** — stage-by-stage input/output, gate results
 - **Gate actions** — approve/reject buttons directly in the UI
 
-### `agent-queue pull`
+### `aqm pull`
 
 Pull a pipeline from the community registry.
 
 ```bash
-agent-queue pull software-dev-pipeline
-agent-queue pull legal-document-review
+aqm pull software-dev-pipeline
+aqm pull legal-document-review
 ```
 
 > Registry feature coming in v0.3.
 
-### `agent-queue publish`
+### `aqm publish`
 
 Share your pipeline to the registry.
 
 ```bash
-agent-queue publish
-agent-queue publish --name "my-pipeline" --description "Custom workflow"
+aqm publish
+aqm publish --name "my-pipeline" --description "Custom workflow"
 ```
 
 > Registry feature coming in v0.3.
 
-### `agent-queue search`
+### `aqm search`
 
 Search the pipeline registry.
 
 ```bash
-agent-queue search "code review"
-agent-queue search "content creation"
+aqm search "code review"
+aqm search "content creation"
 ```
 
 > Registry feature coming in v0.3.
@@ -384,7 +384,7 @@ The `agents.yaml` file is the single source of truth for your pipeline. It defin
 ### Top-Level Structure
 
 ```yaml
-# .agent-queue/agents.yaml
+# .aqm/agents.yaml
 params:          # (optional) Parameterization for reusability
   model: claude-sonnet-4-20250514
   project_path:
@@ -437,21 +437,21 @@ agents:
 
 ```bash
 # Via CLI flags
-agent-queue run "Build feature" --param model=claude-opus-4-6 --param project_path=/my/project
+aqm run "Build feature" --param model=claude-opus-4-6 --param project_path=/my/project
 
-# Via overrides file (.agent-queue/params.yaml)
-echo "model: claude-opus-4-6" > .agent-queue/params.yaml
-echo "project_path: /my/project" >> .agent-queue/params.yaml
-agent-queue run "Build feature"
+# Via overrides file (.aqm/params.yaml)
+echo "model: claude-opus-4-6" > .aqm/params.yaml
+echo "project_path: /my/project" >> .aqm/params.yaml
+aqm run "Build feature"
 ```
 
 **Resolution priority:** CLI flags > params.yaml file > default values.
 
 This is what makes the "pull and customize" workflow possible:
 ```bash
-agent-queue pull software-dev-pipeline
-# Edit .agent-queue/params.yaml with your values
-agent-queue run "Build login feature"
+aqm pull software-dev-pipeline
+# Edit .aqm/params.yaml with your values
+aqm run "Build login feature"
 ```
 
 ---
@@ -461,7 +461,7 @@ agent-queue run "Build login feature"
 Import agent definitions from external YAML files to avoid duplication:
 
 ```yaml
-# .agent-queue/agents.yaml
+# .aqm/agents.yaml
 imports:
   - from: ./shared/reviewer.yaml          # relative path
     agents: [security_reviewer]            # import specific agents (optional — omit to import all)
@@ -475,7 +475,7 @@ agents:
 ```
 
 ```yaml
-# .agent-queue/shared/reviewer.yaml
+# .aqm/shared/reviewer.yaml
 agents:
   - id: security_reviewer
     runtime: api
@@ -726,7 +726,7 @@ gate:
 | Type | Behavior |
 |---|---|
 | `llm` | Claude CLI automatically evaluates the output and returns `{"decision": "approved"/"rejected", "reason": "..."}`. Pipeline continues immediately. |
-| `human` | Pipeline **pauses** and waits for manual approval. Resume with `agent-queue approve <task-id>` or `agent-queue reject <task-id> -r "reason"`. |
+| `human` | Pipeline **pauses** and waits for manual approval. Resume with `aqm approve <task-id>` or `aqm reject <task-id> -r "reason"`. |
 
 ---
 
@@ -796,7 +796,7 @@ This is useful for restricting which tools an agent can use, or passing other Cl
 ### Complete Example
 
 ```yaml
-# .agent-queue/agents.yaml
+# .aqm/agents.yaml
 agents:
   - id: planner
     name: Planning Agent
@@ -884,7 +884,7 @@ In this example, the QA agent analyzes test results and autonomously decides:
 
 ## Comparison with Existing Frameworks
 
-| | LangGraph | CrewAI | OpenSWE | agent-queue |
+| | LangGraph | CrewAI | OpenSWE | aqm |
 |---|---|---|---|---|
 | Pipeline definition | Python code | Python code | Code | **YAML** |
 | Pipeline sharing | ❌ | Paid platform | ❌ | **Open registry** |
@@ -920,14 +920,14 @@ In this example, the QA agent analyzes test results and autonomously decides:
 
 Validate your pipeline against the spec:
 ```bash
-agent-queue validate .agent-queue/agents.yaml
+aqm validate .aqm/agents.yaml
 ```
 
 ## Architecture
 
 ```
-agent-queue/
-├── agent_queue/
+aqm/
+├── aqm/
 │   ├── core/
 │   │   ├── task.py           # Task, StageRecord, TaskStatus
 │   │   ├── agent.py          # AgentDefinition, params, extends, imports
@@ -981,8 +981,8 @@ agent-queue/
 - [ ] Context summarization (prevent token explosion)
 
 ### v0.3 — Ecosystem
-- [ ] Pipeline registry (`agent-queue publish / pull / search`)
-- [ ] registry.agent-queue.dev launch
+- [ ] Pipeline registry (`aqm publish / pull / search`)
+- [ ] registry.aqm.dev launch
 - [ ] YAML version control and forking
 
 ### v1.0 — Stabilization
@@ -993,8 +993,8 @@ agent-queue/
 ## Contributing
 
 ```bash
-git clone https://github.com/smoveth/agent-queue
-cd agent-queue
+git clone https://github.com/smoveth/aqm
+cd aqm
 pip install -e ".[dev]"
 pytest tests/
 ```
