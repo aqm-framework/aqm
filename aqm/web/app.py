@@ -13,7 +13,14 @@ from fastapi.responses import HTMLResponse
 
 from aqm.core.agent import load_agents
 from aqm.core.context_file import ContextFile
-from aqm.core.project import get_agents_yaml_path, get_db_path, get_tasks_dir
+from aqm.core.project import (
+    get_agents_yaml_path,
+    get_db_path,
+    get_default_pipeline,
+    get_tasks_dir,
+    list_pipelines,
+    set_default_pipeline,
+)
 from aqm.queue.sqlite import SQLiteQueue
 
 
@@ -23,14 +30,14 @@ def create_app(project_root: Path) -> FastAPI:
 
     project_root = Path(project_root).resolve()
     db_path = get_db_path(project_root)
-    agents_yaml_path = get_agents_yaml_path(project_root)
 
     def _get_queue() -> SQLiteQueue:
         return SQLiteQueue(db_path)
 
-    def _get_agents():
-        if agents_yaml_path.exists():
-            return load_agents(agents_yaml_path)
+    def _get_agents(pipeline: str | None = None):
+        path = get_agents_yaml_path(project_root, pipeline)
+        if path.exists():
+            return load_agents(path)
         return {}
 
     # ── Startup: recover stale tasks ──────────────────────────────────
@@ -54,21 +61,25 @@ def create_app(project_root: Path) -> FastAPI:
     # ── HTML Pages ────────────────────────────────────────────────────
 
     @app.get("/", response_class=HTMLResponse)
-    async def dashboard():
+    async def dashboard(pipeline: str | None = None):
         from aqm.web.pages.dashboard import render_dashboard
         queue = _get_queue()
         try:
             tasks = queue.list_tasks()
-            agents = _get_agents()
-            return render_dashboard(tasks, agents)
+            pipelines = list_pipelines(project_root)
+            current = pipeline or get_default_pipeline(project_root) or "default"
+            agents = _get_agents(current)
+            return render_dashboard(tasks, agents, pipelines=pipelines, current_pipeline=current)
         finally:
             queue.close()
 
     @app.get("/agents", response_class=HTMLResponse)
-    async def agents_page():
+    async def agents_page(pipeline: str | None = None):
         from aqm.web.pages.agents import render_agents
-        agents = _get_agents()
-        return render_agents(agents)
+        pipelines = list_pipelines(project_root)
+        current = pipeline or get_default_pipeline(project_root) or "default"
+        agents = _get_agents(current)
+        return render_agents(agents, pipelines=pipelines, current_pipeline=current)
 
     @app.get("/tasks/{task_id}", response_class=HTMLResponse)
     async def task_detail(task_id: str):
@@ -95,6 +106,25 @@ def create_app(project_root: Path) -> FastAPI:
     async def validate_page():
         from aqm.web.pages.validate import render_validate
         return render_validate()
+
+    # ── Pipeline API ───────────────────────────────────────────────────
+
+    @app.get("/api/pipelines")
+    async def api_list_pipelines():
+        pipelines = list_pipelines(project_root)
+        default = get_default_pipeline(project_root) or "default"
+        return {"pipelines": pipelines, "default": default}
+
+    @app.post("/api/pipelines/default")
+    async def api_set_default_pipeline(body: dict):
+        name = body.get("name")
+        if not name:
+            raise HTTPException(400, "Missing 'name' field")
+        pipelines = list_pipelines(project_root)
+        if name not in pipelines:
+            raise HTTPException(404, f"Pipeline '{name}' not found")
+        set_default_pipeline(project_root, name)
+        return {"default": name}
 
     # ── API Routes ────────────────────────────────────────────────────
 

@@ -194,10 +194,28 @@ GRAPH_JS = """\
 </script>"""
 
 
-def render_agents(agents: dict[str, AgentDefinition]) -> str:
+def render_agents(
+    agents: dict[str, AgentDefinition],
+    pipelines: list[str] | None = None,
+    current_pipeline: str = "default",
+) -> str:
+    # Pipeline selector
+    pipeline_selector = ""
+    if pipelines and len(pipelines) > 1:
+        pipe_options = "".join(
+            f'<option value="{esc(p)}"{"selected" if p == current_pipeline else ""}>{esc(p)}</option>'
+            for p in pipelines
+        )
+        pipeline_selector = (
+            f'<div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;">'
+            f'<label style="font-weight:600;">Pipeline:</label>'
+            f'<select onchange="location.href=\'/agents?pipeline=\'+this.value"'
+            f' style="max-width:300px;">{pipe_options}</select></div>'
+        )
+
     if not agents:
-        body = '<div class="empty-state">No agents defined. Create .aqm/agents.yaml first.</div>'
-        return layout("Agents", f"<h1>Agent Pipeline</h1>\n{body}", active="agents")
+        body = '<div class="empty-state">No agents defined in this pipeline.</div>'
+        return layout("Agents", f"<h1>Agent Pipeline</h1>\n{pipeline_selector}{body}", active="agents")
 
     graph_data = _build_graph_data(agents)
     graph_js = GRAPH_JS.replace("GRAPH_DATA_PLACEHOLDER", graph_data)
@@ -210,7 +228,7 @@ def render_agents(agents: dict[str, AgentDefinition]) -> str:
 
     return layout(
         "Agents",
-        f"<h1>Agent Pipeline</h1>\n{graph_section}\n<h2 style='margin-top:24px;'>Agent Details</h2>\n{details}",
+        f"<h1>Agent Pipeline</h1>\n{pipeline_selector}{graph_section}\n<h2 style='margin-top:24px;'>Agent Details</h2>\n{details}",
         active="agents",
         extra_head=D3_DAGRE_CDN,
     )

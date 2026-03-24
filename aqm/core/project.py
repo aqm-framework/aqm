@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 AQM_DIR = ".aqm"
 AGENTS_YAML = "agents.yaml"
+PIPELINES_DIR = "pipelines"
+CONFIG_YAML = "config.yaml"
 
 # YAML spec reference for AI generation — loaded from docs/spec.md at runtime
 # YAML spec reference — try package-internal path first, then project root docs/
@@ -58,24 +60,160 @@ def find_project_root(start: Path | None = None) -> Path | None:
     return None
 
 
-def init_project(path: Path | None = None, yaml_content: str | None = None) -> Path:
-    """Create the .aqm/ directory and agents.yaml.
+def init_project(
+    path: Path | None = None,
+    yaml_content: str | None = None,
+    pipeline_name: str = "default",
+) -> Path:
+    """Create the .aqm/ directory and a pipeline file.
 
     Args:
         path: Target directory. Defaults to cwd.
         yaml_content: Custom YAML content. Uses DEFAULT_AGENTS_YAML if None.
+        pipeline_name: Name for the pipeline (default: "default").
     """
     root = (path or Path.cwd()).resolve()
     aq_dir = root / AQM_DIR
 
     aq_dir.mkdir(exist_ok=True)
     (aq_dir / "tasks").mkdir(exist_ok=True)
+    (aq_dir / PIPELINES_DIR).mkdir(exist_ok=True)
 
-    agents_yaml = aq_dir / AGENTS_YAML
-    if not agents_yaml.exists():
-        agents_yaml.write_text(yaml_content or DEFAULT_AGENTS_YAML, encoding="utf-8")
+    save_pipeline(root, pipeline_name, yaml_content or DEFAULT_AGENTS_YAML)
+
+    # Set as default if no default exists yet
+    if not get_default_pipeline(root):
+        set_default_pipeline(root, pipeline_name)
 
     return root
+
+
+# ---------------------------------------------------------------------------
+# Multi-pipeline management
+# ---------------------------------------------------------------------------
+
+
+def _ensure_pipelines_dir(root: Path) -> None:
+    """Ensure .aqm/pipelines/ exists, migrate legacy agents.yaml if needed."""
+    pipelines_dir = root / AQM_DIR / PIPELINES_DIR
+    legacy_path = root / AQM_DIR / AGENTS_YAML
+
+    if not pipelines_dir.exists():
+        pipelines_dir.mkdir(parents=True, exist_ok=True)
+
+    # Migrate legacy agents.yaml → pipelines/default.yaml
+    if legacy_path.exists() and not (pipelines_dir / "default.yaml").exists():
+        import shutil
+        shutil.copy2(str(legacy_path), str(pipelines_dir / "default.yaml"))
+        logger.info("Migrated agents.yaml → pipelines/default.yaml")
+
+
+def list_pipelines(root: Path) -> list[str]:
+    """Return sorted list of pipeline names in .aqm/pipelines/."""
+    _ensure_pipelines_dir(root)
+    pipelines_dir = root / AQM_DIR / PIPELINES_DIR
+    names = sorted(
+        p.stem for p in pipelines_dir.glob("*.yaml")
+        if p.is_file() and not p.name.startswith(".")
+    )
+    if not names:
+        # Fallback: check legacy
+        legacy = root / AQM_DIR / AGENTS_YAML
+        if legacy.exists():
+            return ["default"]
+    return names
+
+
+def get_pipeline_path(root: Path, name: str | None = None) -> Path:
+    """Resolve the path to a pipeline YAML file.
+
+    Args:
+        root: Project root directory.
+        name: Pipeline name.  None means use default.
+
+    Returns:
+        Path to the pipeline YAML file.
+
+    Raises:
+        FileNotFoundError: If the pipeline does not exist.
+    """
+    _ensure_pipelines_dir(root)
+    if name is None:
+        name = get_default_pipeline(root) or "default"
+
+    pipeline_path = root / AQM_DIR / PIPELINES_DIR / f"{name}.yaml"
+    if pipeline_path.exists():
+        return pipeline_path
+
+    # Fallback: legacy path for "default"
+    if name == "default":
+        legacy = root / AQM_DIR / AGENTS_YAML
+        if legacy.exists():
+            return legacy
+
+    raise FileNotFoundError(f"Pipeline '{name}' not found at {pipeline_path}")
+
+
+def save_pipeline(root: Path, name: str, content: str) -> Path:
+    """Write a pipeline YAML file to .aqm/pipelines/<name>.yaml."""
+    _ensure_pipelines_dir(root)
+    pipeline_path = root / AQM_DIR / PIPELINES_DIR / f"{name}.yaml"
+    pipeline_path.write_text(content, encoding="utf-8")
+    return pipeline_path
+
+
+def delete_pipeline(root: Path, name: str) -> None:
+    """Delete a pipeline YAML file.
+
+    Raises:
+        ValueError: If trying to delete the only pipeline.
+        FileNotFoundError: If the pipeline doesn't exist.
+    """
+    pipelines = list_pipelines(root)
+    if name not in pipelines:
+        raise FileNotFoundError(f"Pipeline '{name}' not found.")
+    if len(pipelines) <= 1:
+        raise ValueError("Cannot delete the only pipeline.")
+
+    pipeline_path = root / AQM_DIR / PIPELINES_DIR / f"{name}.yaml"
+    pipeline_path.unlink()
+
+    # If this was the default, set a new default
+    current_default = get_default_pipeline(root)
+    if current_default == name:
+        remaining = [p for p in pipelines if p != name]
+        if remaining:
+            set_default_pipeline(root, remaining[0])
+
+
+def get_default_pipeline(root: Path) -> str | None:
+    """Read the default pipeline name from .aqm/config.yaml."""
+    import yaml as _yaml
+    config_path = root / AQM_DIR / CONFIG_YAML
+    if not config_path.exists():
+        return None
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = _yaml.safe_load(f) or {}
+        return data.get("default_pipeline")
+    except Exception:
+        return None
+
+
+def set_default_pipeline(root: Path, name: str) -> None:
+    """Write the default pipeline name to .aqm/config.yaml."""
+    import yaml as _yaml
+    config_path = root / AQM_DIR / CONFIG_YAML
+    data: dict = {}
+    if config_path.exists():
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                data = _yaml.safe_load(f) or {}
+        except Exception:
+            data = {}
+    data["default_pipeline"] = name
+    with open(config_path, "w", encoding="utf-8") as f:
+        _yaml.dump(data, f, default_flow_style=False)
 
 
 def _load_spec() -> str:
@@ -638,8 +776,13 @@ Output the complete fixed YAML. First line MUST be: apiVersion: aqm/v0.1"""
     return yaml_text
 
 
-def get_agents_yaml_path(root: Path) -> Path:
-    return root / AQM_DIR / AGENTS_YAML
+def get_agents_yaml_path(root: Path, pipeline: str | None = None) -> Path:
+    """Get path to the agents YAML file.  Supports multi-pipeline."""
+    try:
+        return get_pipeline_path(root, pipeline)
+    except FileNotFoundError:
+        # Fallback to legacy path
+        return root / AQM_DIR / AGENTS_YAML
 
 
 def get_tasks_dir(root: Path) -> Path:

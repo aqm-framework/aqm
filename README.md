@@ -291,6 +291,9 @@ aqm run --parallel "Add documentation"
 
 # With verbose logging
 aqm -v run "Add user registration"
+
+# Run a specific pipeline
+aqm run --pipeline code-review "Review PR #42"
 ```
 
 **Execution modes:**
@@ -462,6 +465,19 @@ aqm priority T-A3F2B1 low
 ```
 
 Higher-priority tasks are executed first when the queue has multiple pending tasks.
+
+### `aqm pipeline`
+
+Manage multiple pipelines in a project.
+
+```bash
+aqm pipeline list                    # List all pipelines
+aqm pipeline create <name>           # Create interactively
+aqm pipeline create <name> --ai      # AI-generate
+aqm pipeline create <name> --template  # Default template
+aqm pipeline default [name]          # Get or set default pipeline
+aqm pipeline delete <name>           # Delete a pipeline
+```
 
 ### `aqm serve`
 
@@ -1165,6 +1181,55 @@ aqm/
 ├── examples/                  # 10 seed pipelines
 └── tests/
 ```
+
+## Multiple Pipelines
+
+A single project can have **multiple pipeline configurations**. Each pipeline lives in `.aqm/pipelines/<name>.yaml`.
+
+### Managing Pipelines
+
+```bash
+# List all pipelines
+aqm pipeline list
+
+# Create a new pipeline (interactive: template or AI-generate)
+aqm pipeline create code-review
+aqm pipeline create marketing --ai      # AI-generate
+aqm pipeline create basic --template    # Default template
+
+# Set the default pipeline
+aqm pipeline default code-review
+
+# Delete a pipeline
+aqm pipeline delete old-pipeline
+```
+
+### Running a Specific Pipeline
+
+```bash
+# Run the default pipeline
+aqm run "Build login feature"
+
+# Run a specific pipeline
+aqm run --pipeline code-review "Review PR #42"
+aqm run --pipeline marketing "Launch campaign for Q2"
+
+# View agents for a specific pipeline
+aqm agents --pipeline code-review
+```
+
+### Web Dashboard
+
+The web dashboard (`aqm serve`) includes a pipeline selector dropdown when multiple pipelines are available. Select a pipeline to:
+- View its agents and handoff graph
+- Run tasks through the selected pipeline
+- Pipeline selection is available on both the Tasks and Agents pages
+
+### Migration from Single Pipeline
+
+If you have an existing `.aqm/agents.yaml`, it is automatically migrated to `.aqm/pipelines/default.yaml` on first use. No manual action needed.
+
+---
 
 ## Roadmap
 
