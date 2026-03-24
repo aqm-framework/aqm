@@ -40,8 +40,8 @@ aqm takes a different path:
 # Use a community-built pipeline instantly
 aqm pull software-dev-pipeline
 
-# Share your pipeline with the ecosystem
-aqm publish my-pipeline
+# Share your pipeline with the ecosystem (creates a PR)
+aqm publish --name my-pipeline
 ```
 
 | Existing approach | aqm |
@@ -437,36 +437,53 @@ Dashboard features:
 
 ### `aqm pull`
 
-Pull a pipeline from the community registry.
+Pull a pipeline from the registry and install it into `.aqm/agents.yaml`.
+
+Searches in order: **GitHub registry** → local registry → bundled examples.
 
 ```bash
+# Pull from GitHub registry (default)
 aqm pull software-dev-pipeline
-aqm pull legal-document-review
-```
 
-> Registry feature coming in v0.3.
+# Pull from a custom registry repo
+aqm pull my-pipeline --repo myorg/my-registry
+
+# Offline mode — skip GitHub, use local/bundled only
+aqm pull software-feature-pipeline --offline
+```
 
 ### `aqm publish`
 
-Share your pipeline to the registry.
+Share your pipeline by creating a PR to the GitHub registry.
 
 ```bash
-aqm publish
+# Publish to GitHub registry (creates a PR)
 aqm publish --name "my-pipeline" --description "Custom workflow"
+
+# Publish to a custom registry repo
+aqm publish --name "my-pipeline" --repo myorg/my-registry
+
+# Save to local registry only (no PR)
+aqm publish --name "my-pipeline" --local
 ```
 
-> Registry feature coming in v0.3.
+Requires [GitHub CLI](https://cli.github.com) (`gh`) for GitHub publishing.
+Local publish (`--local`) works without it.
 
 ### `aqm search`
 
-Search the pipeline registry.
+Search for available pipelines across all sources.
 
 ```bash
-aqm search "code review"
-aqm search "content creation"
-```
+# List all available pipelines
+aqm search
 
-> Registry feature coming in v0.3.
+# Filter by keyword
+aqm search "code review"
+
+# Offline search (local + bundled only)
+aqm search --offline
+```
 
 ## agents.yaml Complete Reference
 
@@ -1113,8 +1130,8 @@ aqm/
 - [ ] Context summarization (prevent token explosion)
 
 ### v0.3 — Ecosystem
-- [ ] Pipeline registry (`aqm publish / pull / search`)
-- [ ] registry.aqm.dev launch
+- [x] GitHub-based pipeline registry (`aqm publish / pull / search`)
+- [ ] registry.aqm.dev launch (dedicated registry server)
 - [ ] YAML version control and forking
 
 ### v1.0 — Stabilization
