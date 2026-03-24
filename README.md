@@ -69,9 +69,9 @@ cd my-project
 aqm init
 
 # Choose your setup method:
-#   [1] Create default template — basic planner→executor pipeline
-#   [2] Pull from registry — install a community pipeline
-#   [3] AI-generate — describe what you want, Claude builds the YAML
+#   [1] AI-generate — describe what you want, select a model, Claude builds the YAML
+#   [2] Create default template — basic planner→executor pipeline
+#   [3] Pull from registry — install a community pipeline
 
 # Run a pipeline
 aqm run "Add JWT authentication to login"
@@ -205,9 +205,9 @@ The wizard offers three setup methods:
 
 | Method | Description |
 |--------|-------------|
-| **[1] Default template** | Start with a basic planner→executor pipeline. Edit `agents.yaml` to customize. |
-| **[2] Pull from registry** | Browse and install pipelines from bundled examples or local registry. |
-| **[3] AI-generate** | Describe your desired pipeline in plain language and Claude generates the YAML — always referencing the full [YAML spec](docs/spec.md) for correctness. **If run inside an existing project, Claude first analyzes the tech stack** (languages, frameworks, test tools, etc.) and tailors the pipeline accordingly. |
+| **[1] AI-generate** | Describe your desired pipeline in plain language, select a Claude model (Opus 4.6 default), and Claude generates the YAML — with interactive Q&A, project analysis, and auto-validation. |
+| **[2] Default template** | Start with a basic planner→executor pipeline. Edit `agents.yaml` to customize. |
+| **[3] Pull from registry** | Browse and install pipelines from bundled examples or local registry. |
 
 **AI-generate example:**
 
@@ -217,11 +217,18 @@ $ aqm init
 
 How would you like to set up your pipeline?
 
-  [1] Create default template
-  [2] Pull from registry
-  [3] AI-generate from description
+  [1] AI-generate from description
+  [2] Create default template
+  [3] Pull from registry
 
-  Choice: 3
+  Choice: 1
+
+Select AI model:
+  [1] Opus 4.6 (most capable) (default)
+  [2] Sonnet 4.6 (fast & capable)
+  [3] Haiku 4.5 (fastest)
+
+  Model: 1
 
   Analyzing project at /Users/you/my-react-app...
 
@@ -475,6 +482,7 @@ aqm pipeline list                    # List all pipelines
 aqm pipeline create <name>           # Create interactively
 aqm pipeline create <name> --ai      # AI-generate
 aqm pipeline create <name> --template  # Default template
+aqm pipeline edit [name]             # Edit a pipeline with AI
 aqm pipeline default [name]          # Get or set default pipeline
 aqm pipeline delete <name>           # Delete a pipeline
 ```
@@ -1196,6 +1204,9 @@ aqm pipeline list
 aqm pipeline create code-review
 aqm pipeline create marketing --ai      # AI-generate
 aqm pipeline create basic --template    # Default template
+
+# Edit an existing pipeline with AI
+aqm pipeline edit code-review
 
 # Set the default pipeline
 aqm pipeline default code-review

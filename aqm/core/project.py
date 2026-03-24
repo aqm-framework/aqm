@@ -14,6 +14,14 @@ AGENTS_YAML = "agents.yaml"
 PIPELINES_DIR = "pipelines"
 CONFIG_YAML = "config.yaml"
 
+# Model selection for AI generation
+DEFAULT_MODEL = "claude-opus-4-6"
+AVAILABLE_MODELS = [
+    ("claude-opus-4-6", "Opus 4.6 (most capable)"),
+    ("claude-sonnet-4-6", "Sonnet 4.6 (fast & capable)"),
+    ("claude-haiku-4-5-20251001", "Haiku 4.5 (fastest)"),
+]
+
 # YAML spec reference for AI generation — loaded from docs/spec.md at runtime
 # YAML spec reference — try package-internal path first, then project root docs/
 _SPEC_INTERNAL = Path(__file__).resolve().parent.parent / "schema" / "spec.md"
@@ -228,7 +236,7 @@ def _load_spec() -> str:
     )
 
 
-def analyze_project(project_dir: Path) -> str:
+def analyze_project(project_dir: Path, model: str | None = None) -> str:
     """Analyze the existing project to extract tech stack and structure.
 
     Uses Claude CLI to scan the project directory and produce a summary
@@ -251,8 +259,12 @@ def analyze_project(project_dir: Path) -> str:
         "Be concise — bullet points only, no prose."
     )
 
+    cmd = ["claude", "-p", analysis_prompt, "--print"]
+    if model:
+        cmd.extend(["--model", model])
+
     result = subprocess.run(
-        ["claude", "-p", analysis_prompt, "--print"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=90,
@@ -269,6 +281,7 @@ def deep_analyze_project(
     project_dir: Path,
     qa_context: str,
     initial_analysis: str = "",
+    model: str | None = None,
 ) -> str:
     """Run a targeted re-analysis of the project based on Q&A answers.
 
@@ -305,8 +318,12 @@ If the user's answers don't require any additional project investigation, respon
 
 Otherwise, output your findings as concise bullet points."""
 
+    cmd = ["claude", "-p", prompt, "--print"]
+    if model:
+        cmd.extend(["--model", model])
+
     result = subprocess.run(
-        ["claude", "-p", prompt, "--print"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=90,
@@ -326,6 +343,7 @@ Otherwise, output your findings as concise bullet points."""
 def generate_clarifying_questions(
     description: str,
     project_analysis: str = "",
+    model: str | None = None,
 ) -> list[dict[str, str]]:
     """Generate clarifying questions to ask the user before building the pipeline.
 
@@ -368,8 +386,12 @@ Example response:
 
 Respond with ONLY the JSON array. No other text."""
 
+    cmd = ["claude", "-p", prompt, "--print", "--output-format", "text"]
+    if model:
+        cmd.extend(["--model", model])
+
     result = subprocess.run(
-        ["claude", "-p", prompt, "--print", "--output-format", "text"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=60,
@@ -416,6 +438,7 @@ def generate_agents_yaml(
     qa_context: str = "",
     deep_analysis: str = "",
     on_status: "Callable[[str], None] | None" = None,
+    model: str | None = None,
 ) -> str:
     """Use Claude CLI to generate agents.yaml from a description and project context.
 
@@ -502,8 +525,12 @@ RULES:
 
 IMPORTANT: Your entire response must be parseable as YAML. Do not write anything before or after the YAML."""
 
+    cmd = ["claude", "-p", prompt, "--print", "--output-format", "text"]
+    if model:
+        cmd.extend(["--model", model])
+
     result = subprocess.run(
-        ["claude", "-p", prompt, "--print", "--output-format", "text"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=120,
@@ -783,6 +810,76 @@ def get_agents_yaml_path(root: Path, pipeline: str | None = None) -> Path:
     except FileNotFoundError:
         # Fallback to legacy path
         return root / AQM_DIR / AGENTS_YAML
+
+
+def edit_pipeline_yaml(
+    current_yaml: str,
+    edit_instruction: str,
+    on_status: "Callable[[str], None] | None" = None,
+    model: str | None = None,
+) -> str:
+    """Edit an existing YAML pipeline based on user instructions.
+
+    Sends the current YAML and the user's edit request to Claude,
+    then validates and auto-fixes the result.
+
+    Args:
+        current_yaml: The current YAML content.
+        edit_instruction: What the user wants to change.
+        on_status: Optional status callback.
+        model: Claude model to use.
+
+    Returns:
+        Modified and validated YAML string.
+    """
+    spec = _load_spec()
+
+    prompt = f"""You are a YAML editor. You receive an existing aqm agents.yaml pipeline and an edit instruction.
+Apply the requested changes and output the complete modified YAML. Output ONLY valid YAML — no prose, no markdown fences.
+
+SPEC (for reference):
+{spec}
+
+CURRENT YAML:
+```
+{current_yaml}
+```
+
+EDIT INSTRUCTION: {edit_instruction}
+
+RULES:
+1. Output the COMPLETE modified YAML (not just the changed parts)
+2. First line MUST be: apiVersion: aqm/v0.1
+3. The "payload" field in handoffs MUST be a plain string, NEVER a dict
+4. Available payload variables: {{{{ output }}}}, {{{{ input }}}}, {{{{ reject_reason }}}}, {{{{ gate_result }}}}
+5. Preserve all existing agents/settings that the edit instruction does not mention changing
+6. Output raw YAML only — no explanations"""
+
+    cmd = ["claude", "-p", prompt, "--print", "--output-format", "text"]
+    if model:
+        cmd.extend(["--model", model])
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Claude CLI failed: {result.stderr.strip()}")
+
+    generated = result.stdout.strip()
+    if not generated:
+        raise RuntimeError("Claude returned empty output")
+
+    generated = _strip_markdown_fences(generated)
+    generated = _strip_leading_prose(generated)
+    generated = generated + "\n"
+
+    generated = _validate_and_fix(generated, max_retries=2, on_status=on_status)
+
+    return generated
 
 
 def get_tasks_dir(root: Path) -> Path:
