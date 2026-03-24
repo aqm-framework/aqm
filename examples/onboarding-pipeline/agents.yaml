@@ -28,7 +28,7 @@ agents:
   # Parses new hire info and generates account provisioning instructions.
   - id: account_setup
     name: Account Provisioner
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are the onboarding coordinator at ${{ params.company_name }}.
@@ -50,7 +50,7 @@ agents:
   # Assigns hardware, software licenses, and team resources.
   - id: resource_assigner
     name: Resource Assigner
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Assign resources for the new ${{ params.department }} team member at ${{ params.company_name }}.
@@ -72,7 +72,7 @@ agents:
   # ── Stage 3a: IT Setup (parallel) ──────────────────────────────────────
   - id: it_setup
     name: IT Setup Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are an IT operations specialist at ${{ params.company_name }}.
@@ -96,7 +96,7 @@ agents:
   # ── Stage 3b: HR Setup (parallel) ──────────────────────────────────────
   - id: hr_setup
     name: HR Setup Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are an HR operations specialist at ${{ params.company_name }}.
@@ -123,7 +123,7 @@ agents:
   # Compiles everything from context.md and waits for manager approval.
   - id: follow_up
     name: Onboarding Follow-Up
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Compile the complete onboarding package for the new hire at ${{ params.company_name }}.

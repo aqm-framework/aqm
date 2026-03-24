@@ -109,9 +109,9 @@
         },
         "runtime": {
           "type": "string",
-          "enum": ["api", "claude_code"],
-          "default": "api",
-          "description": "Execution runtime. \"api\" uses the Anthropic Messages API directly. \"claude_code\" spawns a Claude Code CLI subprocess."
+          "enum": ["text", "claude_code"],
+          "default": "text",
+          "description": "Execution runtime. \"text\" runs Claude CLI in text-only mode (no tool access). \"claude_code\" spawns a Claude Code CLI subprocess with full tool access."
         },
         "model": {
           "type": ["string", "null"],

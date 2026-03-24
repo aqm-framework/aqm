@@ -28,7 +28,7 @@ agents:
   # Reads the document and pulls out all legally significant terms.
   - id: extractor
     name: Term Extractor
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: filesystem
@@ -60,7 +60,7 @@ agents:
   # Creates a plain-English summary of the document.
   - id: summarizer
     name: Legal Summarizer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Summarize the extracted legal terms into plain English for
@@ -86,7 +86,7 @@ agents:
   # If too risky, loops back to extractor for deeper analysis.
   - id: risk_flagger
     name: Risk Assessor
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a legal risk analyst for ${{ params.company_name }}.
@@ -120,7 +120,7 @@ agents:
   # Final human gate — a real lawyer or legal team lead approves.
   - id: human_approver
     name: Legal Counsel Gate
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Prepare the final legal review package for ${{ params.legal_team_email }}.

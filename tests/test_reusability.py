@@ -154,7 +154,7 @@ class TestParamsIntegration:
                 {
                     "id": "dev",
                     "name": "Developer",
-                    "runtime": "api",
+                    "runtime": "text",
                     "model": "${{ params.model }}",
                     "system_prompt": "Work on ${{ params.project_path }}",
                     "mcp": [
@@ -189,7 +189,7 @@ class TestParamsIntegration:
                 {
                     "id": "a",
                     "name": "A",
-                    "runtime": "api",
+                    "runtime": "text",
                     "model": "${{ params.model }}",
                 }
             ],
@@ -219,7 +219,7 @@ class TestExtends:
                 {
                     "id": "base_reviewer",
                     "abstract": True,
-                    "runtime": "api",
+                    "runtime": "text",
                     "system_prompt": "Review: {{ input }}",
                     "gate": {"type": "llm"},
                 },
@@ -241,7 +241,7 @@ class TestExtends:
         # Child should exist and inherit runtime + gate from parent
         assert "code_reviewer" in agents
         cr = agents["code_reviewer"]
-        assert cr.runtime == "api"
+        assert cr.runtime == "text"
         assert cr.gate is not None
         assert cr.gate.type == "llm"
         # Child's own system_prompt overrides parent's
@@ -257,7 +257,7 @@ class TestExtends:
                 {
                     "id": "child",
                     "extends": "nonexistent_parent",
-                    "runtime": "api",
+                    "runtime": "text",
                 }
             ]
         }
@@ -278,12 +278,12 @@ class TestExtends:
                 {
                     "id": "abstract_only",
                     "abstract": True,
-                    "runtime": "api",
+                    "runtime": "text",
                 },
                 {
                     "id": "concrete",
                     "name": "Concrete",
-                    "runtime": "api",
+                    "runtime": "text",
                 },
             ]
         }
@@ -305,7 +305,7 @@ class TestExtends:
                 {
                     "id": "parent",
                     "name": "Parent",
-                    "runtime": "api",
+                    "runtime": "text",
                     "model": "sonnet",
                 },
                 {
@@ -322,7 +322,7 @@ class TestExtends:
         assert "parent" in agents  # Not abstract, so still present
         assert "child" in agents
         assert agents["child"].model == "opus"
-        assert agents["child"].runtime == "api"  # Inherited
+        assert agents["child"].runtime == "text"  # Inherited
 
 
 # ── Imports ────────────────────────────────────────────────────────────
@@ -343,7 +343,7 @@ class TestImports:
                 {
                     "id": "reviewer",
                     "name": "Shared Reviewer",
-                    "runtime": "api",
+                    "runtime": "text",
                     "system_prompt": "Review: {{ input }}",
                 }
             ]
@@ -360,7 +360,7 @@ class TestImports:
                 {
                     "id": "developer",
                     "name": "Developer",
-                    "runtime": "api",
+                    "runtime": "text",
                     "handoffs": [
                         {"to": "reviewer", "condition": "always"}
                     ],
@@ -383,8 +383,8 @@ class TestImports:
 
         shared_content = {
             "agents": [
-                {"id": "wanted", "name": "Wanted", "runtime": "api"},
-                {"id": "not_wanted", "name": "Not Wanted", "runtime": "api"},
+                {"id": "wanted", "name": "Wanted", "runtime": "text"},
+                {"id": "not_wanted", "name": "Not Wanted", "runtime": "text"},
             ]
         }
         shared_path = aq_dir / "shared.yaml"
@@ -393,7 +393,7 @@ class TestImports:
         main_content = {
             "imports": [{"from": "./shared.yaml", "agents": ["wanted"]}],
             "agents": [
-                {"id": "main_agent", "name": "Main", "runtime": "api"},
+                {"id": "main_agent", "name": "Main", "runtime": "text"},
             ],
         }
         yaml_path = aq_dir / "agents.yaml"
@@ -411,7 +411,7 @@ class TestImports:
         main_content = {
             "imports": [{"from": "./nonexistent.yaml", "agents": []}],
             "agents": [
-                {"id": "a", "name": "A", "runtime": "api"},
+                {"id": "a", "name": "A", "runtime": "text"},
             ],
         }
         yaml_path = aq_dir / "agents.yaml"
@@ -431,7 +431,7 @@ class TestImports:
                 {
                     "id": "base_agent",
                     "abstract": True,
-                    "runtime": "api",
+                    "runtime": "text",
                     "gate": {"type": "llm"},
                     "system_prompt": "Base prompt: {{ input }}",
                 }
@@ -478,7 +478,7 @@ class TestCombinedFeatures:
                 {
                     "id": "base",
                     "abstract": True,
-                    "runtime": "api",
+                    "runtime": "text",
                     "model": "${{ params.model }}",
                 },
                 {
@@ -505,7 +505,7 @@ class TestCombinedFeatures:
                 {
                     "id": "imported",
                     "name": "Imported",
-                    "runtime": "api",
+                    "runtime": "text",
                 }
             ]
         }
@@ -515,7 +515,7 @@ class TestCombinedFeatures:
         main_content = {
             "imports": [{"from": "./shared.yaml"}],
             "agents": [
-                {"id": "local", "name": "Local", "runtime": "api"},
+                {"id": "local", "name": "Local", "runtime": "text"},
             ],
         }
         yaml_path = aq_dir / "agents.yaml"
@@ -533,7 +533,7 @@ class TestCombinedFeatures:
 
         yaml_content = {
             "agents": [
-                {"id": "code_reviewer", "runtime": "api"},
+                {"id": "code_reviewer", "runtime": "text"},
             ]
         }
         yaml_path = aq_dir / "agents.yaml"
