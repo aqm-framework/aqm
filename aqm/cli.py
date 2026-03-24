@@ -187,6 +187,22 @@ def init(path: str | None) -> None:
       [3] AI-generate — describe your pipeline and let Claude create it
     """
     target = Path(path) if path else None
+    project_dir = (target or Path.cwd()).resolve()
+    existing_yaml = project_dir / ".aqm" / "agents.yaml"
+
+    if existing_yaml.exists():
+        console.print(
+            f"\n[yellow]Warning:[/] .aqm/agents.yaml already exists at:\n"
+            f"  {existing_yaml}\n"
+        )
+        overwrite = click.confirm(
+            "  Delete existing pipeline and start fresh?", default=False
+        )
+        if not overwrite:
+            console.print("[dim]Cancelled. Existing pipeline unchanged.[/]")
+            return
+        existing_yaml.unlink()
+        console.print("[dim]Existing agents.yaml removed.[/]\n")
 
     console.print("\n[bold]How would you like to set up your pipeline?[/]\n")
     console.print("  [green][1][/] Create default template")
@@ -201,7 +217,10 @@ def init(path: str | None) -> None:
         agents_yaml = get_agents_yaml_path(root)
         console.print(f"\n[green]✓[/] .aqm/ initialization complete")
         console.print(f"  Config file: {agents_yaml}")
-        console.print(f"\n[dim]Edit agents.yaml to configure your pipeline.[/]")
+        console.print(
+            f"\n  Run [bold]aqm run \"your task\"[/] to start the pipeline.\n"
+            f"  Run [bold]aqm serve[/] to open the web dashboard."
+        )
 
     elif choice == 2:
         # Pull from registry — show search results first
@@ -275,7 +294,8 @@ def _init_from_registry(target: Path | None) -> None:
         f"\n[green]✓[/] .aqm/ initialized with [bold]{pipeline_name}[/]\n"
         f"  Agents: {agent_count}\n"
         f"  Config file: {agents_yaml}\n"
-        f"\n  Run [bold]aqm run \"your task\"[/] to start the pipeline."
+        f"\n  Run [bold]aqm run \"your task\"[/] to start the pipeline.\n"
+        f"  Run [bold]aqm serve[/] to open the web dashboard."
     )
 
 
@@ -426,7 +446,8 @@ def _init_from_ai(target: Path | None) -> None:
         f"\n[green]✓[/] .aqm/ initialized with AI-generated pipeline\n"
         f"  Config file: {agents_yaml}\n"
         f"\n  Run [bold]aqm validate[/] to check the configuration.\n"
-        f"  Run [bold]aqm run \"your task\"[/] to start the pipeline."
+        f"  Run [bold]aqm run \"your task\"[/] to start the pipeline.\n"
+        f"  Run [bold]aqm serve[/] to open the web dashboard."
     )
 
 
