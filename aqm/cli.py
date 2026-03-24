@@ -798,52 +798,74 @@ def _get_bundled_examples_dir() -> Path:
 
 @cli.command()
 @click.argument("pipeline_name")
-def pull(pipeline_name: str) -> None:
+@click.option(
+    "--repo",
+    default=None,
+    help="GitHub registry repo (default: aqm-framework/registry)",
+)
+@click.option(
+    "--offline",
+    is_flag=True,
+    help="Skip GitHub, only search local and bundled",
+)
+def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
     """Pull a pipeline and install it into .aqm/agents.yaml.
 
     Searches in order:
-      1. Local registry (~/.aqm/registry/)
-      2. Bundled seed pipelines (shipped with aqm)
+      1. GitHub registry (aqm-framework/registry)
+      2. Local registry (~/.aqm/registry/)
+      3. Bundled seed pipelines (shipped with aqm)
 
     Example: aqm pull software-feature-pipeline
     """
+    from aqm.registry import pull_from_github, DEFAULT_REGISTRY_REPO
+
     root = _require_project()
+    registry_repo = repo or DEFAULT_REGISTRY_REPO
 
-    console.print(
-        f"[dim]Searching for '{pipeline_name}'...[/]"
-    )
+    console.print(f"[dim]Searching for '{pipeline_name}'...[/]")
 
-    source_yaml: Path | None = None
+    content: str | None = None
     source_label = ""
 
-    # 1. Local registry
-    registry_dir = _get_registry_dir()
-    local_path = registry_dir / pipeline_name / "agents.yaml"
-    if local_path.exists():
-        source_yaml = local_path
-        source_label = "local registry"
+    # 1. GitHub registry
+    if not offline:
+        console.print(f"  [dim]Checking GitHub ({registry_repo})...[/]")
+        result = pull_from_github(pipeline_name, repo=registry_repo)
+        if result:
+            content, meta = result
+            source_label = f"github ({registry_repo})"
+            console.print(f"  [green]Found on GitHub[/]")
 
-    # 2. Bundled examples
-    if not source_yaml:
+    # 2. Local registry
+    if content is None:
+        registry_dir = _get_registry_dir()
+        local_path = registry_dir / pipeline_name / "agents.yaml"
+        if local_path.exists():
+            content = local_path.read_text(encoding="utf-8")
+            source_label = "local registry"
+
+    # 3. Bundled examples
+    if content is None:
         examples_dir = _get_bundled_examples_dir()
         bundled_path = examples_dir / pipeline_name / "agents.yaml"
         if bundled_path.exists():
-            source_yaml = bundled_path
+            content = bundled_path.read_text(encoding="utf-8")
             source_label = "bundled examples"
 
-    if not source_yaml:
+    if content is None:
         console.print(
             f"[red]Pipeline '{pipeline_name}' not found.[/]\n"
             f"  Searched:\n"
-            f"    - Local registry: {registry_dir}\n"
-            f"    - Bundled examples: {_get_bundled_examples_dir()}\n"
+            f"    - GitHub: {registry_repo}\n"
+            f"    - Local: {_get_registry_dir()}\n"
+            f"    - Bundled: {_get_bundled_examples_dir()}\n"
             f"\n  Use 'aqm search' to list available pipelines."
         )
         sys.exit(1)
 
     # Copy to project
     target = get_agents_yaml_path(root)
-    content = source_yaml.read_text(encoding="utf-8")
 
     if target.exists():
         if not click.confirm(
@@ -877,14 +899,31 @@ def pull(pipeline_name: str) -> None:
 @cli.command()
 @click.option("--name", default=None, help="Pipeline name (default: directory name)")
 @click.option("--description", default=None, help="Pipeline description")
-def publish(name: str | None, description: str | None) -> None:
-    """Publish .aqm/agents.yaml to the local registry.
+@click.option(
+    "--repo",
+    default=None,
+    help="GitHub registry repo (default: aqm-framework/registry)",
+)
+@click.option(
+    "--local",
+    is_flag=True,
+    help="Publish to local registry only (skip GitHub PR)",
+)
+def publish(
+    name: str | None,
+    description: str | None,
+    repo: str | None,
+    local: bool,
+) -> None:
+    """Publish .aqm/agents.yaml to the registry.
 
-    The pipeline is saved to ~/.aqm/registry/<name>/ and can be pulled
-    from any project with 'aqm pull <name>'.
+    By default, creates a PR to the GitHub registry repo.
+    Use --local to save only to ~/.aqm/registry/ without a PR.
 
     Example: aqm publish --name my-pipeline
     """
+    from aqm.registry import publish_to_github, DEFAULT_REGISTRY_REPO
+
     root = _require_project()
     agents_yaml = get_agents_yaml_path(root)
 
@@ -909,66 +948,118 @@ def publish(name: str | None, description: str | None) -> None:
         return
 
     pipeline_name = name or root.name
+    agent_count = len(data.get("agents", []))
+
+    # Always save to local registry
     registry_dir = _get_registry_dir()
     target_dir = registry_dir / pipeline_name
     target_dir.mkdir(parents=True, exist_ok=True)
 
     target_yaml = target_dir / "agents.yaml"
-
-    if target_yaml.exists():
-        if not click.confirm(
-            f"  Pipeline '{pipeline_name}' already exists in registry. Overwrite?",
-            default=False,
-        ):
-            console.print("[dim]Cancelled.[/]")
-            return
-
     content = agents_yaml.read_text(encoding="utf-8")
     target_yaml.write_text(content, encoding="utf-8")
 
-    # Write metadata
     import json
 
     meta = {
         "name": pipeline_name,
         "description": description or "",
-        "agents": len(data.get("agents", [])),
+        "agents_count": agent_count,
         "params": len(data.get("params", {})),
         "source": str(root),
     }
     (target_dir / "meta.json").write_text(
-        json.dumps(meta, indent=2), encoding="utf-8"
+        json.dumps(meta, indent=2) + "\n", encoding="utf-8"
     )
 
-    agent_count = len(data.get("agents", []))
     console.print(
-        f"[green]✓[/] Published [bold]{pipeline_name}[/] to local registry\n"
+        f"[green]✓[/] Saved [bold]{pipeline_name}[/] to local registry\n"
         f"  Agents: {agent_count}\n"
-        f"  Location: {target_dir}\n"
-        f"\n  Pull from any project: [bold]aqm pull {pipeline_name}[/]"
+        f"  Location: {target_dir}"
     )
+
+    if local:
+        console.print(
+            f"\n  Pull from any project: [bold]aqm pull {pipeline_name} --offline[/]"
+        )
+        return
+
+    # Publish to GitHub via PR
+    registry_repo = repo or DEFAULT_REGISTRY_REPO
+    console.print(
+        f"\n[dim]Creating PR to {registry_repo}...[/]"
+    )
+
+    result = publish_to_github(
+        agents_yaml_path=agents_yaml,
+        pipeline_name=pipeline_name,
+        description=description or "",
+        repo=registry_repo,
+    )
+
+    if result.success:
+        console.print(
+            f"[green]✓[/] PR created: [bold]{result.pr_url}[/]\n"
+            f"\n  Your pipeline will be available after the PR is reviewed and merged."
+        )
+    else:
+        console.print(
+            f"[yellow]⚠[/] GitHub publish failed: {result.error}\n"
+            f"\n  Pipeline is still available locally: "
+            f"[bold]aqm pull {pipeline_name} --offline[/]"
+        )
 
 
 @cli.command()
 @click.argument("query", required=False, default=None)
-def search(query: str | None) -> None:
+@click.option(
+    "--repo",
+    default=None,
+    help="GitHub registry repo (default: aqm-framework/registry)",
+)
+@click.option(
+    "--offline",
+    is_flag=True,
+    help="Skip GitHub, only search local and bundled",
+)
+def search(query: str | None, repo: str | None, offline: bool) -> None:
     """Search for available pipelines.
 
-    Lists pipelines from the local registry and bundled examples.
+    Lists pipelines from GitHub registry, local registry, and bundled examples.
     Optionally filter by keyword.
 
     Example: aqm search code
     """
-    results: list[tuple[str, str, str]] = []  # (name, source, description)
+    from aqm.registry import search_github, DEFAULT_REGISTRY_REPO
 
-    # Scan bundled examples
+    results: list[tuple[str, str, str]] = []  # (name, source, description)
+    seen_names: set[str] = set()
+
+    # 1. GitHub registry
+    if not offline:
+        registry_repo = repo or DEFAULT_REGISTRY_REPO
+        console.print(f"[dim]Searching GitHub ({registry_repo})...[/]")
+        github_results = search_github(query=query, repo=registry_repo)
+        for meta in github_results:
+            results.append((meta.name, "github", meta.description))
+            seen_names.add(meta.name)
+
+    # 2. Bundled examples
     examples_dir = _get_bundled_examples_dir()
     if examples_dir.is_dir():
         for d in sorted(examples_dir.iterdir()):
             if d.is_dir() and (d / "agents.yaml").exists():
-                results.append((d.name, "bundled", ""))
+                if d.name in seen_names:
+                    # Upgrade existing entry to show both sources
+                    results = [
+                        (n, f"{s}+bundled" if n == d.name else s, de)
+                        for n, s, de in results
+                    ]
+                else:
+                    results.append((d.name, "bundled", ""))
+                    seen_names.add(d.name)
 
-    # Scan local registry
+    # 3. Local registry
     registry_dir = _get_registry_dir()
     if registry_dir.is_dir():
         for d in sorted(registry_dir.iterdir()):
@@ -978,22 +1069,27 @@ def search(query: str | None) -> None:
                 if meta_path.exists():
                     import json
 
-                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                    desc = meta.get("description", "")
-                # Skip if already in results from bundled
-                if not any(r[0] == d.name for r in results):
-                    results.append((d.name, "local", desc))
-                else:
-                    # Mark as both bundled + local
+                    meta_data = json.loads(
+                        meta_path.read_text(encoding="utf-8")
+                    )
+                    desc = meta_data.get("description", "")
+                if d.name in seen_names:
                     results = [
-                        (n, "bundled+local" if n == d.name else s, desc or de)
+                        (n, f"{s}+local" if n == d.name else s, de or desc)
                         for n, s, de in results
                     ]
+                else:
+                    results.append((d.name, "local", desc))
+                    seen_names.add(d.name)
 
-    # Filter by query
+    # Filter by query (for local/bundled that weren't pre-filtered)
     if query:
         q = query.lower()
-        results = [(n, s, d) for n, s, d in results if q in n.lower() or q in d.lower()]
+        results = [
+            (n, s, d)
+            for n, s, d in results
+            if q in n.lower() or q in d.lower()
+        ]
 
     if not results:
         if query:
@@ -1007,13 +1103,18 @@ def search(query: str | None) -> None:
     table.add_column("Source")
     table.add_column("Description")
 
-    for name, source, desc in results:
-        source_style = {
-            "bundled": "[blue]bundled[/]",
-            "local": "[green]local[/]",
-            "bundled+local": "[cyan]bundled+local[/]",
-        }.get(source, source)
-        table.add_row(name, source_style, desc or "[dim]-[/]")
+    source_styles = {
+        "github": "[magenta]github[/]",
+        "bundled": "[blue]bundled[/]",
+        "local": "[green]local[/]",
+    }
+
+    for pipeline_name, source, desc in results:
+        # Style composite sources like "github+bundled"
+        styled_source = source
+        for key, style in source_styles.items():
+            styled_source = styled_source.replace(key, style)
+        table.add_row(pipeline_name, styled_source, desc or "[dim]-[/]")
 
     console.print(table)
     console.print(
