@@ -632,11 +632,9 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
             f"{(stage.output_text[:80] + '...') if len(stage.output_text) > 80 else stage.output_text}"
         )
 
-    # Stream output lines to terminal when -v flag is set
-    _verbose = logging.getLogger("aqm").level <= logging.DEBUG
-
+    # Stream output lines to terminal in real-time
     def _on_output(line: str) -> None:
-        if _verbose:
+        if line.strip():
             console.print(f"    [dim]{line}[/]")
 
     result = pipeline.run_task(
