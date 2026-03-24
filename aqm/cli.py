@@ -30,6 +30,7 @@ from aqm.core.agent import load_agents
 from aqm.core.project import (
     find_project_root,
     generate_agents_yaml,
+    generate_clarifying_questions,
     get_agents_yaml_path,
     get_db_path,
     get_tasks_dir,
@@ -292,8 +293,17 @@ def _init_from_ai(target: Path | None) -> None:
     )
 
     description = click.prompt("  Pipeline description", type=str)
+    # Normalize multi-line pasted input to a single line and flush stdin
+    # to prevent leftover newlines from leaking into subsequent prompts.
+    description = " ".join(description.splitlines()).strip()
+    try:
+        import termios
+        termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+    except (ImportError, termios.error, OSError):
+        pass
 
     # Step 2: Analyze project (after description, so analysis can be contextual)
+    analysis = ""
     has_project = any(
         p for p in project_dir.iterdir()
         if p.name not in {".git", ".aqm", "__pycache__", "node_modules", ".venv"}
@@ -310,18 +320,57 @@ def _init_from_ai(target: Path | None) -> None:
             console.print("[dim]Could not analyze project (continuing without context).[/]\n")
             has_project = False
 
+    # Step 3: Generate clarifying questions and collect answers
+    console.print(f"\n[dim]Generating clarifying questions...[/]")
+    project_analysis_text = analysis if has_project else ""
+    questions = generate_clarifying_questions(description, project_analysis_text)
+
+    qa_context = ""
+    if questions:
+        console.print(
+            f"\n[bold]A few questions to build a better pipeline[/] "
+            f"[dim](press Enter to use default)[/]\n"
+        )
+        qa_pairs: list[str] = []
+        for i, q in enumerate(questions, 1):
+            question_text = q.get("question", "")
+            why_text = q.get("why", "")
+            default_text = q.get("default", "")
+
+            if why_text:
+                console.print(f"  [dim]{why_text}[/]")
+
+            answer = click.prompt(
+                f"  [bold]Q{i}.[/] {question_text}",
+                default=default_text or "",
+                show_default=bool(default_text),
+            )
+            if answer:
+                qa_pairs.append(f"Q: {question_text}\nA: {answer}")
+            console.print()
+
+        qa_context = "\n\n".join(qa_pairs)
+    else:
+        console.print("[dim]No additional questions needed.[/]\n")
+
+    # Step 4: Generate YAML
     if has_project:
         console.print(
             f"[dim]Generating agents.yaml with Claude "
-            f"(project analysis + YAML spec reference)...[/]"
+            f"(project analysis + your answers + YAML spec reference)...[/]"
         )
     else:
-        console.print(f"\n[dim]Generating agents.yaml with Claude (referencing YAML spec)...[/]")
+        console.print(f"\n[dim]Generating agents.yaml with Claude (your answers + YAML spec)...[/]")
+
+    def _print_status(msg: str) -> None:
+        console.print(f"  [dim]{msg}[/]")
 
     try:
         generated = generate_agents_yaml(
             description,
             project_dir=project_dir if has_project else None,
+            qa_context=qa_context,
+            on_status=_print_status,
         )
     except Exception as e:
         console.print(f"[red]Generation failed:[/] {e}")
@@ -348,6 +397,8 @@ def _init_from_ai(target: Path | None) -> None:
             generated = generate_agents_yaml(
                 refined,
                 project_dir=project_dir if has_project else None,
+                qa_context=qa_context,
+                on_status=_print_status,
             )
             console.print("\n[bold]Regenerated agents.yaml:[/]\n")
             console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
@@ -367,56 +418,6 @@ def _init_from_ai(target: Path | None) -> None:
         root = init_project(target)
         console.print(f"\n[green]✓[/] .aqm/ initialized with default template")
         return
-
-    # Validate before writing
-    import yaml as _yaml
-    is_valid = False
-    try:
-        data = _yaml.safe_load(generated)
-        if isinstance(data, dict) and "agents" in data:
-            is_valid = True
-        else:
-            console.print(
-                "[yellow]Warning:[/] Generated YAML is missing 'agents' key."
-            )
-    except Exception:
-        console.print(
-            "[yellow]Warning:[/] Generated output is not valid YAML."
-        )
-
-    if not is_valid:
-        fallback = click.prompt(
-            "  [1] Use anyway  [2] Regenerate  [3] Use default template\n  Choice",
-            type=click.IntRange(1, 3),
-            default=2,
-        )
-        if fallback == 2:
-            console.print(f"\n[dim]Regenerating...[/]")
-            try:
-                generated = generate_agents_yaml(
-                    description,
-                    project_dir=project_dir if has_project else None,
-                )
-                console.print("\n[bold]Regenerated agents.yaml:[/]\n")
-                from rich.syntax import Syntax as _Syn
-                console.print(_Syn(generated, "yaml", theme="monokai", line_numbers=True))
-                # Re-validate
-                try:
-                    data = _yaml.safe_load(generated)
-                    if not isinstance(data, dict) or "agents" not in data:
-                        console.print("[yellow]Warning:[/] Still not valid. Using anyway.")
-                except Exception:
-                    console.print("[yellow]Warning:[/] Still not valid YAML. Using anyway.")
-            except Exception as e:
-                console.print(f"[red]Regeneration failed:[/] {e}")
-                console.print("[dim]Using default template.[/]")
-                root = init_project(target)
-                console.print(f"[green]✓[/] .aqm/ initialized with default template")
-                return
-        elif fallback == 3:
-            root = init_project(target)
-            console.print(f"\n[green]✓[/] .aqm/ initialized with default template")
-            return
 
     root = init_project(target, yaml_content=generated)
     agents_yaml = get_agents_yaml_path(root)
