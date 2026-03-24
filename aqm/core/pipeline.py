@@ -459,9 +459,9 @@ class Pipeline:
         task = self.queue.get(task_id)
         if task is None:
             raise ValueError(f"Task '{task_id}' not found.")
-        if task.status != TaskStatus.awaiting_gate:
+        if task.status not in (TaskStatus.awaiting_gate, TaskStatus.approved, TaskStatus.rejected):
             raise ValueError(
-                f"Task '{task_id}' is not in gate-awaiting state. "
+                f"Task '{task_id}' is not in a resumable state. "
                 f"(current: {task.status.value})"
             )
 
