@@ -1204,6 +1204,12 @@ aqm/
 - [ ] Redis / Postgres queue backends
 - [ ] Pipeline execution history and analytics
 
+## Community
+
+Join the aqm community on Discord to share pipelines, ask questions, and get help:
+
+**[Discord](https://discord.gg/798f3rED)**
+
 ## Contributing
 
 ```bash
