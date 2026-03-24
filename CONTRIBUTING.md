@@ -18,7 +18,7 @@ This guide covers everything you need to get started.
 
 ```bash
 # Clone the repository
-git clone https://github.com/smoveth/aqm.git
+git clone https://github.com/aqm-framework/aqm.git
 cd aqm
 
 # Install in development mode with dev dependencies

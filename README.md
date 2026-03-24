@@ -1057,7 +1057,7 @@ aqm/
 ## Contributing
 
 ```bash
-git clone https://github.com/smoveth/aqm
+git clone https://github.com/aqm-framework/aqm
 cd aqm
 pip install -e ".[dev]"
 pytest tests/

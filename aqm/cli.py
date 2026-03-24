@@ -781,57 +781,243 @@ def fix(task_id: str, input_text: str, agent: str | None, params: tuple[str, ...
 # ── pull / publish / search (registry) ──────────────────────────────────
 
 
-REGISTRY_URL = "https://registry.aqm.dev"
+REGISTRY_DIR_NAME = "registry"
+
+
+def _get_registry_dir() -> Path:
+    """Get the global registry directory (~/.aqm/registry/)."""
+    registry = Path.home() / ".aqm" / REGISTRY_DIR_NAME
+    registry.mkdir(parents=True, exist_ok=True)
+    return registry
+
+
+def _get_bundled_examples_dir() -> Path:
+    """Get the bundled examples directory shipped with the package."""
+    return Path(__file__).resolve().parent.parent / "examples"
 
 
 @cli.command()
 @click.argument("pipeline_name")
 def pull(pipeline_name: str) -> None:
-    """Pull a pipeline from the registry."""
+    """Pull a pipeline and install it into .aqm/agents.yaml.
+
+    Searches in order:
+      1. Local registry (~/.aqm/registry/)
+      2. Bundled seed pipelines (shipped with aqm)
+
+    Example: aqm pull software-feature-pipeline
+    """
     root = _require_project()
 
     console.print(
-        f"[dim]Searching for '{pipeline_name}' in registry...[/]"
+        f"[dim]Searching for '{pipeline_name}'...[/]"
     )
 
-    # TODO: Integrate with actual registry API
+    source_yaml: Path | None = None
+    source_label = ""
+
+    # 1. Local registry
+    registry_dir = _get_registry_dir()
+    local_path = registry_dir / pipeline_name / "agents.yaml"
+    if local_path.exists():
+        source_yaml = local_path
+        source_label = "local registry"
+
+    # 2. Bundled examples
+    if not source_yaml:
+        examples_dir = _get_bundled_examples_dir()
+        bundled_path = examples_dir / pipeline_name / "agents.yaml"
+        if bundled_path.exists():
+            source_yaml = bundled_path
+            source_label = "bundled examples"
+
+    if not source_yaml:
+        console.print(
+            f"[red]Pipeline '{pipeline_name}' not found.[/]\n"
+            f"  Searched:\n"
+            f"    - Local registry: {registry_dir}\n"
+            f"    - Bundled examples: {_get_bundled_examples_dir()}\n"
+            f"\n  Use 'aqm search' to list available pipelines."
+        )
+        sys.exit(1)
+
+    # Copy to project
+    target = get_agents_yaml_path(root)
+    content = source_yaml.read_text(encoding="utf-8")
+
+    if target.exists():
+        if not click.confirm(
+            f"  .aqm/agents.yaml already exists. Overwrite?",
+            default=False,
+        ):
+            console.print("[dim]Cancelled.[/]")
+            return
+
+    target.write_text(content, encoding="utf-8")
+
+    # Count agents for summary
+    import yaml as _yaml
+
+    data = _yaml.safe_load(content)
+    agent_count = len(data.get("agents", []))
+    param_count = len(data.get("params", {}))
+
     console.print(
-        f"[yellow]Registry feature will be available in v0.3.[/]\n"
-        f"  For now, please copy the agents.yaml file manually."
+        f"[green]✓[/] Pulled [bold]{pipeline_name}[/] from {source_label}\n"
+        f"  Agents: {agent_count}"
+    )
+    if param_count:
+        console.print(f"  Params: {param_count}")
+    console.print(
+        f"  Installed to: {target}\n"
+        f"\n  Run [bold]aqm run \"your task\"[/] to start the pipeline."
     )
 
 
 @cli.command()
-@click.option("--name", default=None, help="Pipeline name")
+@click.option("--name", default=None, help="Pipeline name (default: directory name)")
 @click.option("--description", default=None, help="Pipeline description")
 def publish(name: str | None, description: str | None) -> None:
-    """Publish a pipeline to the registry."""
+    """Publish .aqm/agents.yaml to the local registry.
+
+    The pipeline is saved to ~/.aqm/registry/<name>/ and can be pulled
+    from any project with 'aqm pull <name>'.
+
+    Example: aqm publish --name my-pipeline
+    """
     root = _require_project()
     agents_yaml = get_agents_yaml_path(root)
 
     if not agents_yaml.exists():
-        console.print("[red]Cannot find agents.yaml.[/]")
+        console.print("[red]Cannot find .aqm/agents.yaml.[/]")
         return
 
+    # Validate the YAML first
+    import yaml as _yaml
+
+    try:
+        with open(agents_yaml, encoding="utf-8") as f:
+            data = _yaml.safe_load(f)
+    except Exception as e:
+        console.print(f"[red]Error:[/] Failed to parse agents.yaml: {e}")
+        return
+
+    if not isinstance(data, dict) or "agents" not in data:
+        console.print(
+            "[red]Error:[/] agents.yaml must have an 'agents' key."
+        )
+        return
+
+    pipeline_name = name or root.name
+    registry_dir = _get_registry_dir()
+    target_dir = registry_dir / pipeline_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    target_yaml = target_dir / "agents.yaml"
+
+    if target_yaml.exists():
+        if not click.confirm(
+            f"  Pipeline '{pipeline_name}' already exists in registry. Overwrite?",
+            default=False,
+        ):
+            console.print("[dim]Cancelled.[/]")
+            return
+
+    content = agents_yaml.read_text(encoding="utf-8")
+    target_yaml.write_text(content, encoding="utf-8")
+
+    # Write metadata
+    import json
+
+    meta = {
+        "name": pipeline_name,
+        "description": description or "",
+        "agents": len(data.get("agents", [])),
+        "params": len(data.get("params", {})),
+        "source": str(root),
+    }
+    (target_dir / "meta.json").write_text(
+        json.dumps(meta, indent=2), encoding="utf-8"
+    )
+
+    agent_count = len(data.get("agents", []))
     console.print(
-        f"[yellow]Registry feature will be available in v0.3.[/]\n"
-        f"  For now, please share the agents.yaml file directly.\n"
-        f"  File location: {agents_yaml}"
+        f"[green]✓[/] Published [bold]{pipeline_name}[/] to local registry\n"
+        f"  Agents: {agent_count}\n"
+        f"  Location: {target_dir}\n"
+        f"\n  Pull from any project: [bold]aqm pull {pipeline_name}[/]"
     )
 
 
 @cli.command()
-@click.argument("query")
-def search(query: str) -> None:
-    """Search for pipelines in the registry."""
-    console.print(
-        f"[dim]Searching for '{query}'...[/]"
-    )
+@click.argument("query", required=False, default=None)
+def search(query: str | None) -> None:
+    """Search for available pipelines.
 
-    # TODO: Integrate with actual registry API
+    Lists pipelines from the local registry and bundled examples.
+    Optionally filter by keyword.
+
+    Example: aqm search code
+    """
+    results: list[tuple[str, str, str]] = []  # (name, source, description)
+
+    # Scan bundled examples
+    examples_dir = _get_bundled_examples_dir()
+    if examples_dir.is_dir():
+        for d in sorted(examples_dir.iterdir()):
+            if d.is_dir() and (d / "agents.yaml").exists():
+                results.append((d.name, "bundled", ""))
+
+    # Scan local registry
+    registry_dir = _get_registry_dir()
+    if registry_dir.is_dir():
+        for d in sorted(registry_dir.iterdir()):
+            if d.is_dir() and (d / "agents.yaml").exists():
+                desc = ""
+                meta_path = d / "meta.json"
+                if meta_path.exists():
+                    import json
+
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    desc = meta.get("description", "")
+                # Skip if already in results from bundled
+                if not any(r[0] == d.name for r in results):
+                    results.append((d.name, "local", desc))
+                else:
+                    # Mark as both bundled + local
+                    results = [
+                        (n, "bundled+local" if n == d.name else s, desc or de)
+                        for n, s, de in results
+                    ]
+
+    # Filter by query
+    if query:
+        q = query.lower()
+        results = [(n, s, d) for n, s, d in results if q in n.lower() or q in d.lower()]
+
+    if not results:
+        if query:
+            console.print(f"[dim]No pipelines matching '{query}'.[/]")
+        else:
+            console.print("[dim]No pipelines found.[/]")
+        return
+
+    table = Table(title="Available Pipelines")
+    table.add_column("Name", style="bold")
+    table.add_column("Source")
+    table.add_column("Description")
+
+    for name, source, desc in results:
+        source_style = {
+            "bundled": "[blue]bundled[/]",
+            "local": "[green]local[/]",
+            "bundled+local": "[cyan]bundled+local[/]",
+        }.get(source, source)
+        table.add_row(name, source_style, desc or "[dim]-[/]")
+
+    console.print(table)
     console.print(
-        f"[yellow]Registry feature will be available in v0.3.[/]\n"
-        f"  Community pipelines: https://github.com/topics/aqm-pipeline"
+        f"\n  Pull a pipeline: [bold]aqm pull <pipeline-name>[/]"
     )
 
 

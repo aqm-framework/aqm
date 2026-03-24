@@ -13,6 +13,8 @@
 #   aqm run --input "Write a guide on microservices best practices"
 # =============================================================================
 
+apiVersion: aqm/v0.1
+
 params:
   tone: "professional"
   audience: "software developers"

@@ -14,6 +14,8 @@
 #   aqm run --input "Add user authentication with OAuth2"
 # =============================================================================
 
+apiVersion: aqm/v0.1
+
 params:
   project_language: "TypeScript"
   test_framework: "vitest"

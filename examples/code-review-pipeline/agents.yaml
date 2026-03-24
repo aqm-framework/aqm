@@ -14,6 +14,8 @@
 #   aqm run --input "https://github.com/org/repo/pull/42"
 # =============================================================================
 
+apiVersion: aqm/v0.1
+
 params:
   repo: "org/repo"
   language: "TypeScript"
