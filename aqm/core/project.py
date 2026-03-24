@@ -263,13 +263,17 @@ def analyze_project(project_dir: Path, model: str | None = None) -> str:
     if model:
         cmd.extend(["--model", model])
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=90,
-        cwd=str(project_dir),
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(project_dir),
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("Project analysis timed out after 180s")
+        return ""
 
     if result.returncode != 0 or not result.stdout.strip():
         return ""
@@ -322,13 +326,17 @@ Otherwise, output your findings as concise bullet points."""
     if model:
         cmd.extend(["--model", model])
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=90,
-        cwd=str(project_dir),
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            cwd=str(project_dir),
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("Deep analysis timed out after 180s")
+        return ""
 
     if result.returncode != 0 or not result.stdout.strip():
         return ""
@@ -390,12 +398,16 @@ Respond with ONLY the JSON array. No other text."""
     if model:
         cmd.extend(["--model", model])
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("Clarifying questions generation timed out")
+        return []
 
     if result.returncode != 0 or not result.stdout.strip():
         logger.warning("Failed to generate clarifying questions: %s", result.stderr.strip())
@@ -533,12 +545,18 @@ IMPORTANT: Your entire response must be parseable as YAML. Do not write anything
     if model:
         cmd.extend(["--model", model])
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "YAML generation timed out after 5 minutes. "
+            "Try a faster model (Sonnet) or simplify the pipeline description."
+        )
 
     if result.returncode != 0:
         raise RuntimeError(f"Claude CLI failed: {result.stderr.strip()}")
@@ -803,12 +821,16 @@ COMMON FIXES:
 
 Output the complete fixed YAML. First line MUST be: apiVersion: aqm/v0.1"""
 
-        result = subprocess.run(
-            ["claude", "-p", fix_prompt, "--print", "--output-format", "text"],
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
+        try:
+            result = subprocess.run(
+                ["claude", "-p", fix_prompt, "--print", "--output-format", "text"],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("[generate] Fix attempt %d timed out", attempt)
+            continue
 
         if result.returncode != 0 or not result.stdout.strip():
             logger.warning("[generate] Fix attempt %d failed: %s", attempt, result.stderr.strip())
@@ -902,12 +924,18 @@ RULES:
     if model:
         cmd.extend(["--model", model])
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "Pipeline modification timed out after 5 minutes. "
+            "Try a faster model or simplify the request."
+        )
 
     if result.returncode != 0:
         raise RuntimeError(f"Claude CLI failed: {result.stderr.strip()}")
