@@ -34,7 +34,7 @@ apiVersion: aqm/v0.1
 agents:
   - id: planner
     name: Planning Agent
-    runtime: api
+    runtime: text
     system_prompt: |
       You are a versatile planner.
       Analyze the user's requirements and create a detailed execution plan.
@@ -231,7 +231,7 @@ def _load_spec() -> str:
     # Fallback: minimal spec summary
     return (
         "agents.yaml format: apiVersion: aqm/v0.1, agents list with id, name, "
-        "runtime (api|claude_code), system_prompt, handoffs (to, task, condition, payload), "
+        "runtime (text|claude_code), system_prompt, handoffs (to, task, condition, payload), "
         "gate (type: llm|human, prompt), mcp servers, params section."
     )
 
@@ -507,9 +507,9 @@ USER REQUEST: {description}
 RULES:
 1. First line of output MUST be: apiVersion: aqm/v0.1
 2. Output raw YAML only — no ```yaml fences, no comments explaining what you did, no introductory text
-3. Every agent needs: id, name, runtime (api or claude_code), system_prompt
+3. Every agent needs: id, name, runtime (text or claude_code), system_prompt
 4. Use handoff conditions: always, on_approve, on_reject, auto
-5. Use runtime: api for planning/reviewing, claude_code for code execution
+5. Use runtime: text for planning/reviewing, claude_code for code execution
 6. Add gates (type: llm or human) where quality checks make sense
 7. Add MCP servers where agents need external tools
 8. Use params for configurable values
@@ -611,7 +611,7 @@ def _structural_validate(data: dict) -> list[str]:
         errors.append("(root): 'agents' must be a list")
         return errors
 
-    valid_runtimes = {"api", "claude_code"}
+    valid_runtimes = {"text", "claude_code"}
     valid_gate_types = {"llm", "human"}
 
     for i, agent in enumerate(agents):
@@ -622,7 +622,7 @@ def _structural_validate(data: dict) -> list[str]:
         if "id" not in agent:
             errors.append(f"{prefix}: 'id' is required")
 
-        runtime = agent.get("runtime", "api")
+        runtime = agent.get("runtime", "text")
         if runtime not in valid_runtimes:
             errors.append(f"{prefix} -> runtime: '{runtime}' is not one of {valid_runtimes}")
 
@@ -753,7 +753,7 @@ COMMON FIXES:
   CORRECT: payload: "key: {{{{ output }}}}"
 - Available payload variables: {{{{ output }}}}, {{{{ input }}}}, {{{{ reject_reason }}}}, {{{{ gate_result }}}}
 - "apiVersion" is required and must be "aqm/v0.1"
-- "runtime" must be "api" or "claude_code"
+- "runtime" must be "text" or "claude_code"
 - "gate.type" must be "llm" or "human"
 - All handoffs need a "to" field (string)
 - No additional properties beyond what the schema allows

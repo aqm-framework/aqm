@@ -241,7 +241,7 @@ The deliberate choice to use Markdown files rather than an in-memory state objec
 
 **How it works:** The Pipeline class is initialized with a dictionary of agent definitions (loaded from `agents.yaml`), a queue implementation, and the project root path. When you call `run_task`, the pipeline enters a loop: it looks up the current agent, builds a prompt from the agent's system prompt template plus the accumulated context, dispatches the prompt to the appropriate runtime (API or Claude Code), evaluates the gate if one is configured, records the stage, resolves handoff conditions, and advances to the next agent. The loop continues until either no handoffs match (task completed), a human gate pauses execution (task awaiting_gate), an error occurs (task failed), or the stage count exceeds the safety limit of 20 stages.
 
-The pipeline supports two runtime backends. The `api` runtime calls the Anthropic API directly with the agent's model and system prompt. The `claude_code` runtime shells out to the Claude Code CLI, which gives agents access to tools like file editing, bash execution, and MCP servers. Each agent declares its runtime in the YAML, so you can mix API-only agents (fast, cheap) with Claude Code agents (powerful, tool-using) in the same pipeline.
+The pipeline supports two runtime backends. The `text` runtime calls the Claude CLI in text-only mode with the agent's model and system prompt. The `claude_code` runtime shells out to the Claude Code CLI, which gives agents access to tools like file editing, bash execution, and MCP servers. Each agent declares its runtime in the YAML, so you can mix text-only agents (fast, cheap) with Claude Code agents (powerful, tool-using) in the same pipeline.
 
 Fan-out is handled by spawning child tasks. When handoff resolution produces multiple targets, the first target continues the current task (preserving the stage history) while each additional target gets a fresh child Task with a `parent_task_id` in its metadata. The child tasks are executed inline via recursive `run_task` calls. This means fan-out is synchronous in the current implementation -- parallel branches execute sequentially but produce independent output in the shared context file.
 
@@ -257,7 +257,7 @@ params:
 agents:
   - id: researcher
     name: Research Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Research the topic for ${{ params.audience }}.
@@ -269,7 +269,7 @@ agents:
 
   - id: writer
     name: Writing Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Write a compelling article. Tone: ${{ params.tone }}.
@@ -281,7 +281,7 @@ agents:
 
   - id: editor
     name: Editing Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Edit this article for quality.
@@ -300,7 +300,7 @@ agents:
 
   - id: publisher
     name: Publishing Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Finalize and format the approved article.

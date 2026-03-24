@@ -26,7 +26,7 @@ apiVersion: aqm/v0.1
 agents:
   - id: planner
     name: Planning Agent
-    runtime: api
+    runtime: text
     system_prompt: "Plan: {{ input }}"
     handoffs:
       - to: executor
@@ -307,6 +307,7 @@ class TestCLIIntegration:
     @patch("aqm.registry._fetch_url")
     def test_pull_from_github_via_cli(self, mock_fetch, tmp_path):
         """Pull fetches from GitHub first."""
+        import os
         from click.testing import CliRunner
         from aqm.cli import cli
         from aqm.core.project import init_project
@@ -316,14 +317,20 @@ class TestCLIIntegration:
         root = init_project(tmp_path)
         runner = CliRunner()
 
-        result = runner.invoke(
-            cli,
-            ["pull", "test-pipeline"],
-            input="y\n",
-        )
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = runner.invoke(
+                cli,
+                ["pull", "test-pipeline"],
+                input="y\n",
+            )
+        finally:
+            os.chdir(old_cwd)
 
         assert result.exit_code == 0
-        agents_yaml = root / ".aqm" / "agents.yaml"
+        # Pipeline is saved under pipelines/ directory
+        agents_yaml = root / ".aqm" / "pipelines" / "test-pipeline.yaml"
         content = agents_yaml.read_text()
         assert "apiVersion: aqm/v0.1" in content
 

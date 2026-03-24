@@ -28,7 +28,7 @@ agents:
   # Categorizes the customer issue by type and urgency.
   - id: classifier
     name: Ticket Classifier
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a support ticket classifier for ${{ params.company_name }}.
@@ -50,7 +50,7 @@ agents:
   # It outputs HANDOFF: <agent_id> based on the classification.
   - id: router
     name: Smart Router
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a support ticket router for ${{ params.company_name }}.
@@ -76,7 +76,7 @@ agents:
   # ── Stage 3a: Billing Specialist ───────────────────────────────────────
   - id: billing_specialist
     name: Billing Specialist
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a billing specialist at ${{ params.company_name }}.
@@ -99,7 +99,7 @@ agents:
   # ── Stage 3b: Technical Specialist ─────────────────────────────────────
   - id: technical_specialist
     name: Technical Specialist
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a technical support specialist at ${{ params.company_name }}.
@@ -121,7 +121,7 @@ agents:
   # ── Stage 3c: Account Specialist ───────────────────────────────────────
   - id: account_specialist
     name: Account Specialist
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are an account specialist at ${{ params.company_name }}.
@@ -145,7 +145,7 @@ agents:
   # Reject sends it back to the specialist for revision.
   - id: escalation
     name: Escalation Manager
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a support escalation manager at ${{ params.company_name }}.

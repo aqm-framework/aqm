@@ -27,7 +27,7 @@ agents:
   # Gathers facts, stats, and references on the topic.
   - id: researcher
     name: Research Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a research specialist preparing material for a ${{ params.content_type }}.
@@ -50,7 +50,7 @@ agents:
   # Turns research into a polished draft.
   - id: writer
     name: Writing Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Write a compelling ${{ params.content_type }} based on the research provided.
@@ -72,7 +72,7 @@ agents:
   # LLM gate checks publishability. Rejected drafts go BACK to writer.
   - id: editor
     name: Editing Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Edit this ${{ params.content_type }} for ${{ params.audience }}.
@@ -104,7 +104,7 @@ agents:
   # Formats and prepares final output for the target platform.
   - id: publisher
     name: Publishing Agent
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Finalize the edited ${{ params.content_type }} for ${{ params.publish_platform }}.

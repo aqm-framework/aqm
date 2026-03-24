@@ -1,4 +1,4 @@
-"""APIRuntime — LLM invocation via the Claude CLI (text-only mode).
+"""TextRuntime — LLM invocation via the Claude CLI (text-only mode).
 
 Unlike ClaudeCodeRuntime, this runtime does NOT give the agent tool access.
 It runs `claude` in print mode for pure text generation tasks (planning,
@@ -29,7 +29,7 @@ def _check_claude_cli_available() -> None:
         )
 
 
-class APIRuntime(AbstractRuntime):
+class TextRuntime(AbstractRuntime):
     """Runs the Claude CLI in print mode for text-only generation.
 
     Uses `claude -p <prompt> --print` which outputs text to stdout
@@ -41,7 +41,7 @@ class APIRuntime(AbstractRuntime):
 
     @property
     def name(self) -> str:
-        return "api"
+        return "text"
 
     def run(self, prompt: str, agent: AgentDefinition, task: Task) -> str:
         _check_claude_cli_available()
@@ -55,7 +55,7 @@ class APIRuntime(AbstractRuntime):
             cmd.extend(["--model", agent.model])
 
         logger.info(
-            "[APIRuntime] Running agent '%s' (model=%s)",
+            "[TextRuntime] Running agent '%s' (model=%s)",
             agent.id,
             agent.model or "default",
         )
@@ -72,7 +72,7 @@ class APIRuntime(AbstractRuntime):
                 result.stderr.strip() or f"Exit code: {result.returncode}"
             )
             logger.error(
-                "[APIRuntime] Agent '%s' failed: %s", agent.id, error_msg
+                "[TextRuntime] Agent '%s' failed: %s", agent.id, error_msg
             )
             raise RuntimeError(
                 f"Claude CLI execution failed (agent={agent.id}): {error_msg}"
@@ -80,7 +80,7 @@ class APIRuntime(AbstractRuntime):
 
         output = result.stdout.strip()
         logger.info(
-            "[APIRuntime] Agent '%s' completed (%d chars)",
+            "[TextRuntime] Agent '%s' completed (%d chars)",
             agent.id,
             len(output),
         )

@@ -29,7 +29,7 @@ agents:
   # Parses the alert and gathers initial context.
   - id: detector
     name: Incident Detector
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: filesystem
@@ -55,7 +55,7 @@ agents:
   # target by emitting HANDOFF: <agent_id> in its output.
   - id: severity_router
     name: Severity Router
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are an incident severity assessor for ${{ params.service_name }}.
@@ -138,7 +138,7 @@ agents:
   # LLM gate verifies the fix. Reject sends back for rework.
   - id: verifier
     name: Fix Verifier
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     mcp:
       - server: filesystem
@@ -171,7 +171,7 @@ agents:
   # Generates a blameless postmortem from the accumulated context.md.
   - id: postmortem
     name: Postmortem Writer
-    runtime: api
+    runtime: text
     model: claude-sonnet-4-20250514
     system_prompt: |
       Write a blameless postmortem for the ${{ params.service_name }} incident.
