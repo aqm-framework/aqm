@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition, MCPServerConfig
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime
+from aqm.runtime.base import AbstractRuntime, OutputCallback
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,13 @@ class ClaudeCodeRuntime(AbstractRuntime):
     def name(self) -> str:
         return "claude_code"
 
-    def run(self, prompt: str, agent: AgentDefinition, task: Task) -> str:
+    def run(
+        self,
+        prompt: str,
+        agent: AgentDefinition,
+        task: Task,
+        on_output: OutputCallback = None,
+    ) -> str:
         # --- Pre-flight check ---------------------------------------------------
         _check_claude_cli_available()
 
@@ -170,28 +176,32 @@ class ClaudeCodeRuntime(AbstractRuntime):
         )
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(self.project_root),
-                timeout=600,
-            )
-
-            if result.returncode != 0:
-                error_msg = (
-                    result.stderr.strip() or f"Exit code: {result.returncode}"
-                )
-                logger.error(
-                    "[ClaudeCodeRuntime] Agent '%s' failed: %s",
-                    agent.id,
-                    error_msg,
-                )
-                raise RuntimeError(
-                    f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+            if on_output:
+                output = self._run_streaming(cmd, agent, on_output)
+            else:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(self.project_root),
+                    timeout=600,
                 )
 
-            output = result.stdout.strip()
+                if result.returncode != 0:
+                    error_msg = (
+                        result.stderr.strip() or f"Exit code: {result.returncode}"
+                    )
+                    logger.error(
+                        "[ClaudeCodeRuntime] Agent '%s' failed: %s",
+                        agent.id,
+                        error_msg,
+                    )
+                    raise RuntimeError(
+                        f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+                    )
+
+                output = result.stdout.strip()
+
             logger.info(
                 "[ClaudeCodeRuntime] Agent '%s' completed (%d chars)",
                 agent.id,
@@ -205,3 +215,50 @@ class ClaudeCodeRuntime(AbstractRuntime):
                 mcp_config_path.unlink(missing_ok=True)
                 if mcp_config_path in _TEMP_FILES_TO_CLEANUP:
                     _TEMP_FILES_TO_CLEANUP.remove(mcp_config_path)
+
+    def _run_streaming(
+        self,
+        cmd: list[str],
+        agent: AgentDefinition,
+        on_output: OutputCallback,
+    ) -> str:
+        """Run with line-by-line streaming via Popen."""
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(self.project_root),
+        )
+
+        lines: list[str] = []
+        try:
+            for line in proc.stdout:
+                lines.append(line)
+                try:
+                    on_output(line.rstrip("\n"))
+                except Exception:
+                    pass
+
+            proc.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise RuntimeError(
+                f"Claude Code timed out (agent={agent.id})"
+            )
+
+        if proc.returncode != 0:
+            error_msg = (
+                proc.stderr.read().strip() if proc.stderr
+                else f"Exit code: {proc.returncode}"
+            )
+            logger.error(
+                "[ClaudeCodeRuntime] Agent '%s' failed: %s",
+                agent.id,
+                error_msg,
+            )
+            raise RuntimeError(
+                f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+            )
+
+        return "".join(lines).strip()

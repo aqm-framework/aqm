@@ -242,6 +242,7 @@ class Pipeline:
         start_agent_id: str,
         input_text: str | None = None,
         on_stage_complete=None,
+        on_output=None,
     ) -> Task:
         """Run a task through the pipeline.
 
@@ -250,6 +251,7 @@ class Pipeline:
             start_agent_id: Starting agent ID
             input_text: Input to pass to the first agent (uses task.description if None)
             on_stage_complete: Stage completion callback (task, stage_record)
+            on_output: Output line callback (line_text) for streaming
 
         Returns:
             The Task in completed (or gate-awaiting) state
@@ -304,7 +306,7 @@ class Pipeline:
 
             try:
                 runtime = self._get_runtime(agent)
-                output = runtime.run(prompt, agent, task)
+                output = runtime.run(prompt, agent, task, on_output=on_output)
                 stage.output_text = output
                 stage.finished_at = datetime.now(timezone.utc)
             except Exception as e:
@@ -410,6 +412,7 @@ class Pipeline:
                         extra_agent_id,
                         input_text=extra_payload,
                         on_stage_complete=on_stage_complete,
+                        on_output=on_output,
                     )
 
             next_agent_id, next_payload = handoff_targets[0]
@@ -434,6 +437,7 @@ class Pipeline:
         decision: str,
         reason: str = "",
         on_stage_complete=None,
+        on_output=None,
     ) -> Task:
         """Resume the pipeline after a human gate.
 
@@ -491,4 +495,5 @@ class Pipeline:
             next_agent_id,
             input_text=next_payload,
             on_stage_complete=on_stage_complete,
+            on_output=on_output,
         )
