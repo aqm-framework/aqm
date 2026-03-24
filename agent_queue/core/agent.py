@@ -17,11 +17,17 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class Handoff(BaseModel):
-    """Handoff rules between agents."""
+    """Handoff rules between agents.
 
-    to: str
+    The ``to`` field can be a single agent ID or a comma-separated list for
+    fan-out (e.g. ``"qa, docs"``).  When ``condition`` is ``"auto"``, the
+    agent itself decides the target by including ``HANDOFF: <agent_id>`` in
+    its output.
+    """
+
+    to: str  # single ID or comma-separated list for fan-out
     task: str = ""
-    condition: str = "always"  # always | on_approve | on_reject | on_pass | expression
+    condition: str = "always"  # always | on_approve | on_reject | on_pass | auto | expression
     payload: str = "{{ output }}"
 
 
@@ -98,11 +104,18 @@ def load_agents(path: Path) -> dict[str, AgentDefinition]:
     all_ids = set(agents.keys())
     for agent in agents.values():
         for handoff in agent.handoffs:
-            if handoff.to not in all_ids:
-                raise ValueError(
-                    f"Handoff target '{handoff.to}' of agent '{agent.id}' "
-                    f"does not exist."
-                )
+            # "auto" condition means the agent decides at runtime — skip
+            # static target validation since the target comes from output.
+            if handoff.condition == "auto":
+                continue
+            # Support comma-separated fan-out targets (e.g. "qa, docs")
+            targets = [t.strip() for t in handoff.to.split(",")]
+            for target in targets:
+                if target not in all_ids:
+                    raise ValueError(
+                        f"Handoff target '{target}' of agent '{agent.id}' "
+                        f"does not exist."
+                    )
 
     return agents
 

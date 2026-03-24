@@ -351,3 +351,76 @@ class TestGate:
         gate = LLMGate.__new__(LLMGate)
         result = gate._parse_response("I have no opinion")
         assert result.decision == "rejected"  # Default is reject
+
+
+# ── Handoff Routing ────────────────────────────────────────────────────
+
+
+class TestHandoffRouting:
+    def test_auto_handoff_parse_single(self):
+        from agent_queue.core.pipeline import Pipeline
+
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.agents = {"dev": True, "qa": True}
+        targets = pipeline._parse_auto_handoff_targets(
+            "Done reviewing.\nHANDOFF: dev\nGood luck."
+        )
+        assert targets == ["dev"]
+
+    def test_auto_handoff_parse_multi(self):
+        from agent_queue.core.pipeline import Pipeline
+
+        pipeline = Pipeline.__new__(Pipeline)
+        targets = pipeline._parse_auto_handoff_targets(
+            "Results ready.\nHANDOFF: dev, qa\nAll done."
+        )
+        assert targets == ["dev", "qa"]
+
+    def test_auto_handoff_parse_multiple_lines(self):
+        from agent_queue.core.pipeline import Pipeline
+
+        pipeline = Pipeline.__new__(Pipeline)
+        targets = pipeline._parse_auto_handoff_targets(
+            "HANDOFF: dev\nSome text\nHANDOFF: qa"
+        )
+        assert targets == ["dev", "qa"]
+
+    def test_auto_handoff_dedup(self):
+        from agent_queue.core.pipeline import Pipeline
+
+        pipeline = Pipeline.__new__(Pipeline)
+        targets = pipeline._parse_auto_handoff_targets(
+            "HANDOFF: dev\nHANDOFF: dev, qa"
+        )
+        assert targets == ["dev", "qa"]
+
+    def test_auto_handoff_case_insensitive(self):
+        from agent_queue.core.pipeline import Pipeline
+
+        pipeline = Pipeline.__new__(Pipeline)
+        targets = pipeline._parse_auto_handoff_targets("handoff: dev")
+        assert targets == ["dev"]
+
+    def test_fanout_comma_separated(self, tmp_project):
+        """Fan-out: comma-separated to field should produce multiple targets."""
+        yaml_content = {
+            "agents": [
+                {
+                    "id": "router",
+                    "name": "Router",
+                    "runtime": "api",
+                    "handoffs": [
+                        {"to": "a, b", "condition": "always"},
+                    ],
+                },
+                {"id": "a", "name": "A", "runtime": "api"},
+                {"id": "b", "name": "B", "runtime": "api"},
+            ]
+        }
+        yaml_path = tmp_project / ".agent-queue" / "agents.yaml"
+        yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
+
+        agents = load_agents(yaml_path)
+        assert "router" in agents
+        assert "a" in agents
+        assert "b" in agents
