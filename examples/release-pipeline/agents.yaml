@@ -14,6 +14,8 @@
 #   aqm run --input "Prepare release for v2.4.0 from main branch"
 # =============================================================================
 
+apiVersion: aqm/v0.1
+
 params:
   repo: "org/product"
   version_strategy: "semver"

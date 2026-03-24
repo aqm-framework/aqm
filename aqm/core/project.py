@@ -8,6 +8,8 @@ AQM_DIR = ".aqm"
 AGENTS_YAML = "agents.yaml"
 
 DEFAULT_AGENTS_YAML = """\
+apiVersion: aqm/v0.1
+
 agents:
   - id: planner
     name: Planning Agent
