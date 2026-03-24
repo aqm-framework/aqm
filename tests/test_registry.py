@@ -349,7 +349,7 @@ class TestCLIIntegration:
         assert "code-review" in result.output
 
     def test_search_offline_via_cli(self):
-        """Search --offline skips GitHub."""
+        """Search --offline skips GitHub, shows local registry only."""
         from click.testing import CliRunner
         from aqm.cli import cli
 
@@ -357,5 +357,5 @@ class TestCLIIntegration:
         result = runner.invoke(cli, ["search", "--offline"])
 
         assert result.exit_code == 0
-        # Should show bundled examples at minimum
-        assert "bundled" in result.output or "No pipelines" in result.output
+        # Should show local results or "No pipelines" message
+        assert "local" in result.output or "No pipelines" in result.output or "Available" in result.output

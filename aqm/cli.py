@@ -270,12 +270,6 @@ def _init_from_registry(target: Path | None) -> None:
     # Show available pipelines
     results: list[tuple[str, str]] = []
 
-    examples_dir = _get_bundled_examples_dir()
-    if examples_dir.is_dir():
-        for d in sorted(examples_dir.iterdir()):
-            if d.is_dir() and (d / "agents.yaml").exists():
-                results.append((d.name, "bundled"))
-
     registry_dir = _get_registry_dir()
     if registry_dir.is_dir():
         for d in sorted(registry_dir.iterdir()):
@@ -307,10 +301,6 @@ def _init_from_registry(target: Path | None) -> None:
     local_path = registry_dir / pipeline_name / "agents.yaml"
     if local_path.exists():
         source_yaml = local_path
-    else:
-        bundled_path = examples_dir / pipeline_name / "agents.yaml"
-        if bundled_path.exists():
-            source_yaml = bundled_path
 
     if not source_yaml:
         console.print(f"[red]Pipeline '{pipeline_name}' not found.[/]")
@@ -1253,11 +1243,6 @@ def _get_registry_dir() -> Path:
     return registry
 
 
-def _get_bundled_examples_dir() -> Path:
-    """Get the bundled examples directory shipped with the package."""
-    return Path(__file__).resolve().parent.parent / "examples"
-
-
 @cli.command()
 @click.argument("pipeline_name")
 @click.option(
@@ -1268,15 +1253,14 @@ def _get_bundled_examples_dir() -> Path:
 @click.option(
     "--offline",
     is_flag=True,
-    help="Skip GitHub, only search local and bundled",
+    help="Skip GitHub, only search local registry",
 )
 def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
-    """Pull a pipeline and install it into .aqm/agents.yaml.
+    """Pull a pipeline and install it into .aqm/pipelines/.
 
     Searches in order:
       1. GitHub registry (aqm-framework/registry)
       2. Local registry (~/.aqm/registry/)
-      3. Bundled seed pipelines (shipped with aqm)
 
     Example: aqm pull software-feature-pipeline
     """
@@ -1307,21 +1291,12 @@ def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
             content = local_path.read_text(encoding="utf-8")
             source_label = "local registry"
 
-    # 3. Bundled examples
-    if content is None:
-        examples_dir = _get_bundled_examples_dir()
-        bundled_path = examples_dir / pipeline_name / "agents.yaml"
-        if bundled_path.exists():
-            content = bundled_path.read_text(encoding="utf-8")
-            source_label = "bundled examples"
-
     if content is None:
         console.print(
             f"[red]Pipeline '{pipeline_name}' not found.[/]\n"
             f"  Searched:\n"
             f"    - GitHub: {registry_repo}\n"
             f"    - Local: {_get_registry_dir()}\n"
-            f"    - Bundled: {_get_bundled_examples_dir()}\n"
             f"\n  Use 'aqm search' to list available pipelines."
         )
         sys.exit(1)
@@ -1480,12 +1455,12 @@ def publish(
 @click.option(
     "--offline",
     is_flag=True,
-    help="Skip GitHub, only search local and bundled",
+    help="Skip GitHub, only search local registry",
 )
 def search(query: str | None, repo: str | None, offline: bool) -> None:
     """Search for available pipelines.
 
-    Lists pipelines from GitHub registry, local registry, and bundled examples.
+    Lists pipelines from GitHub registry and local registry.
     Optionally filter by keyword.
 
     Example: aqm search code
@@ -1504,22 +1479,7 @@ def search(query: str | None, repo: str | None, offline: bool) -> None:
             results.append((meta.name, "github", meta.description))
             seen_names.add(meta.name)
 
-    # 2. Bundled examples
-    examples_dir = _get_bundled_examples_dir()
-    if examples_dir.is_dir():
-        for d in sorted(examples_dir.iterdir()):
-            if d.is_dir() and (d / "agents.yaml").exists():
-                if d.name in seen_names:
-                    # Upgrade existing entry to show both sources
-                    results = [
-                        (n, f"{s}+bundled" if n == d.name else s, de)
-                        for n, s, de in results
-                    ]
-                else:
-                    results.append((d.name, "bundled", ""))
-                    seen_names.add(d.name)
-
-    # 3. Local registry
+    # 2. Local registry
     registry_dir = _get_registry_dir()
     if registry_dir.is_dir():
         for d in sorted(registry_dir.iterdir()):

@@ -62,9 +62,9 @@ Pipelines are the core of the aqm ecosystem. A well-designed YAML pipeline that 
 
 #### How to create a pipeline
 
-1. Create a new directory under `examples/`:
+1. Create your pipeline locally and publish to the [registry](https://github.com/aqm-framework/registry):
    ```
-   examples/your-pipeline-name/
+   your-pipeline-name/
    ├── agents.yaml      # The pipeline definition
    ├── README.md        # What it does, how to use it
    └── params.yaml      # (optional) Example parameter overrides
@@ -266,7 +266,7 @@ aqm serve
 Documentation improvements are always welcome. Areas that currently need help:
 
 - **Docstrings:** Many public classes and methods in `aqm/core/` lack Google-style docstrings. Adding them is a great first contribution.
-- **Examples:** More real-world pipeline examples with detailed READMEs (see `examples/` for existing 10 pipelines).
+- **Examples:** More real-world pipeline examples with detailed READMEs (see the [registry](https://github.com/aqm-framework/registry) for existing pipelines).
 - **Tutorials:** Step-by-step guides for common use cases (content pipelines, data pipelines, support workflows).
 - **Architecture docs:** Deeper explanations of the routing engine, gate evaluation, and context accumulation system.
 
