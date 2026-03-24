@@ -52,6 +52,7 @@ class Pipeline:
 
     @property
     def anthropic_client(self):
+        """Lazy-initialize Anthropic client (used only for LLM gates)."""
         if self._anthropic_client is None:
             import anthropic
 
@@ -62,7 +63,7 @@ class Pipeline:
         """Return a runtime instance matching the agent's runtime type."""
         if agent.runtime not in self._runtimes:
             if agent.runtime == "api":
-                self._runtimes["api"] = APIRuntime(self.anthropic_client)
+                self._runtimes["api"] = APIRuntime(self.project_root)
             elif agent.runtime == "claude_code":
                 self._runtimes["claude_code"] = ClaudeCodeRuntime(
                     self.project_root

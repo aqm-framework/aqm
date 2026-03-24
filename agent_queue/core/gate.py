@@ -1,9 +1,16 @@
-"""Gate — LLM automatic evaluation or Human manual approval/rejection."""
+"""Gate — LLM automatic evaluation or Human manual approval/rejection.
+
+LLMGate uses the Claude CLI (not the Anthropic SDK directly) so that
+authentication is handled by the CLI's own login session.
+"""
 
 from __future__ import annotations
 
 import json
+import logging
 import re
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
@@ -11,6 +18,8 @@ from typing import Optional
 from agent_queue.core.agent import GateConfig
 from agent_queue.core.context import render_template
 from agent_queue.core.task import Task
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -29,7 +38,7 @@ class AbstractGate(ABC):
 
 
 class LLMGate(AbstractGate):
-    """Automatic evaluation via the Claude API."""
+    """Automatic evaluation via the Claude CLI."""
 
     EVAL_SYSTEM_PROMPT = """\
 You are a quality gate evaluator. Evaluate the agent output below.
@@ -38,9 +47,9 @@ You must respond only in the following JSON format:
 {"decision": "approved" or "rejected", "reason": "basis for the decision"}
 """
 
-    def __init__(self, config: GateConfig, anthropic_client) -> None:
+    def __init__(self, config: GateConfig, anthropic_client=None) -> None:
         self.config = config
-        self.client = anthropic_client
+        # anthropic_client kept for backward compatibility but not used
 
     def evaluate(self, task: Task, agent_output: str) -> GateResult:
         extra_prompt = ""
@@ -57,14 +66,40 @@ You must respond only in the following JSON format:
 
         model = self.config.model or "claude-sonnet-4-20250514"
 
-        response = self.client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=self.EVAL_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
+        # Use Claude CLI instead of Anthropic SDK
+        if shutil.which("claude") is None:
+            raise FileNotFoundError(
+                "The 'claude' CLI was not found on PATH. "
+                "Please install Claude Code CLI first: "
+                "https://docs.anthropic.com/en/docs/claude-code"
+            )
+
+        cmd = [
+            "claude", "-p", user_message, "--print",
+            "--system-prompt", self.EVAL_SYSTEM_PROMPT,
+            "--model", model,
+        ]
+
+        logger.info(
+            "[LLMGate] Evaluating gate (model=%s)", model
         )
 
-        return self._parse_response(response.content[0].text)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or f"Exit code: {result.returncode}"
+            logger.error("[LLMGate] CLI failed: %s", error_msg)
+            return GateResult(
+                decision="rejected",
+                reason=f"Gate evaluation failed: {error_msg}",
+            )
+
+        return self._parse_response(result.stdout.strip())
 
     def _parse_response(self, text: str) -> GateResult:
         """Parse the decision from the LLM response."""
