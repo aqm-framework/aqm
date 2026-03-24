@@ -2,6 +2,7 @@
 
 aqm init       Initialize project
 aqm run        Run pipeline
+aqm fix        Follow-up on a previous task (carries over context)
 aqm status     Query task status
 aqm list       List tasks
 aqm approve    Approve human gate
@@ -36,6 +37,103 @@ from aqm.core.project import (
 from aqm.core.task import Task, TaskStatus
 
 console = Console()
+
+
+def _prompt_for_params(
+    param_defs: dict[str, "ParamDefinition"],
+    cli_overrides: dict[str, str],
+    overrides_file: Path | None = None,
+) -> dict[str, str]:
+    """Interactively prompt for unresolved params that have `prompt` set.
+
+    For each param that:
+      - has no value from CLI overrides or overrides file
+      - has a `prompt` field defined
+    Shows an interactive prompt with options:
+      [1] Enter manually
+      [2] Auto-detect from project (if auto_detect is set)
+
+    Returns additional overrides to merge into cli_overrides.
+    """
+    import yaml as _yaml
+
+    # Load existing file overrides
+    file_overrides: dict[str, Any] = {}
+    if overrides_file and overrides_file.exists():
+        with open(overrides_file, encoding="utf-8") as f:
+            file_overrides = _yaml.safe_load(f) or {}
+
+    extra: dict[str, str] = {}
+    for name, param_def in param_defs.items():
+        # Skip if already resolved
+        if name in cli_overrides:
+            continue
+        if name in file_overrides:
+            continue
+        if param_def.default is not None and not param_def.prompt:
+            continue
+        if not param_def.prompt:
+            continue
+
+        # Show the interactive prompt
+        console.print(f"\n[bold cyan]?[/] [bold]{param_def.prompt}[/]")
+        if param_def.description:
+            console.print(f"  [dim]{param_def.description}[/]")
+
+        has_auto = bool(param_def.auto_detect)
+
+        console.print(f"  [green][1][/] Enter manually")
+        if has_auto:
+            console.print(f"  [blue][2][/] Auto-detect from project")
+        if param_def.default is not None:
+            console.print(f"  [dim][3][/] Use default: {param_def.default}")
+
+        choice = click.prompt(
+            "  Choice",
+            type=str,
+            default="1",
+        )
+
+        if choice == "1":
+            value = click.prompt(f"  Value", type=str)
+            extra[name] = value
+        elif choice == "2" and has_auto:
+            console.print(f"  [dim]Auto-detecting...[/]")
+            try:
+                import subprocess
+
+                result = subprocess.run(
+                    ["claude", "-p", param_def.auto_detect, "--print"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                detected = result.stdout.strip()
+                if detected:
+                    console.print(f"  [green]Detected:[/] {detected}")
+                    if click.confirm("  Use this value?", default=True):
+                        extra[name] = detected
+                    else:
+                        value = click.prompt(f"  Enter manually", type=str)
+                        extra[name] = value
+                else:
+                    console.print(f"  [yellow]Could not auto-detect.[/]")
+                    value = click.prompt(f"  Enter manually", type=str)
+                    extra[name] = value
+            except Exception as e:
+                console.print(f"  [yellow]Auto-detect failed: {e}[/]")
+                value = click.prompt(f"  Enter manually", type=str)
+                extra[name] = value
+        elif choice == "3" and param_def.default is not None:
+            extra[name] = str(param_def.default)
+        else:
+            if param_def.default is not None:
+                extra[name] = str(param_def.default)
+            else:
+                value = click.prompt(f"  Value", type=str)
+                extra[name] = value
+
+    return extra
 
 
 def _require_project() -> Path:
@@ -117,6 +215,34 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
             sys.exit(1)
         key, value = p.split("=", 1)
         cli_params[key.strip()] = value.strip()
+
+    # Interactive param prompts for params with `prompt` field
+    try:
+        import yaml as _yaml
+
+        agents_yaml_path = get_agents_yaml_path(root)
+        with open(agents_yaml_path, encoding="utf-8") as f:
+            raw_yaml = _yaml.safe_load(f)
+
+        param_defs_raw = raw_yaml.get("params", {})
+        if param_defs_raw:
+            from aqm.core.agent import ParamDefinition
+
+            param_defs: dict[str, ParamDefinition] = {}
+            for pname, pval in param_defs_raw.items():
+                if isinstance(pval, dict):
+                    param_defs[pname] = ParamDefinition.model_validate(pval)
+                else:
+                    param_defs[pname] = ParamDefinition(default=pval)
+
+            # Check if any params need interactive prompts
+            overrides_file = agents_yaml_path.parent / "params.yaml"
+            interactive_params = _prompt_for_params(
+                param_defs, cli_params, overrides_file
+            )
+            cli_params.update(interactive_params)
+    except Exception:
+        pass  # Fall through to normal loading which will report errors
 
     try:
         agents = load_agents(get_agents_yaml_path(root), cli_params=cli_params or None)
@@ -536,6 +662,120 @@ def serve(port: int, host: str) -> None:
             "[yellow]Additional packages are required to run the web dashboard:[/]\n"
             "  pip install aqm[serve]"
         )
+
+
+# ── fix (follow-up task) ───────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id")
+@click.argument("input_text")
+@click.option("--agent", default=None, help="Starting agent ID (default: first)")
+@click.option(
+    "--param", "-p",
+    "params",
+    multiple=True,
+    help="Parameter override in key=value format (repeatable)",
+)
+def fix(task_id: str, input_text: str, agent: str | None, params: tuple[str, ...]) -> None:
+    """Follow-up on a previous task. Carries over context.
+
+    Example: aqm fix T-A3F2B1 "The login button color is wrong"
+    """
+    root = _require_project()
+
+    # Parse --param key=value pairs
+    cli_params: dict[str, str] = {}
+    for p in params:
+        if "=" not in p:
+            console.print(
+                f"[red]Error:[/] Invalid --param format: '{p}'. "
+                f"Expected key=value."
+            )
+            sys.exit(1)
+        key, value = p.split("=", 1)
+        cli_params[key.strip()] = value.strip()
+
+    # Verify parent task exists and load its context
+    queue = _get_queue(root)
+    parent_task = queue.get(task_id)
+    if not parent_task:
+        console.print(f"[red]Error:[/] Task '{task_id}' not found.")
+        sys.exit(1)
+
+    tasks_dir = get_tasks_dir(root)
+    context_path = tasks_dir / task_id / "context.md"
+    parent_context = ""
+    if context_path.exists():
+        parent_context = context_path.read_text(encoding="utf-8")
+
+    try:
+        agents = load_agents(get_agents_yaml_path(root), cli_params=cli_params or None)
+    except (ValueError, FileNotFoundError) as e:
+        console.print(f"[red]Error:[/] {e}")
+        sys.exit(1)
+
+    start_agent = agent or next(iter(agents))
+
+    from aqm.core.pipeline import Pipeline
+
+    pipeline = Pipeline(agents, queue, root)
+
+    # Build the follow-up input with parent context
+    followup_input = (
+        f"[FIX — follow-up from {task_id}]\n"
+        f"Description: {parent_task.description}\n\n"
+        f"--- Previous context ---\n{parent_context}\n"
+        f"--- Fix request ---\n{input_text}"
+    )
+
+    task = Task(
+        description=f"[fix] {input_text}",
+        parent_task_id=task_id,
+        metadata={"kind": "fix", "parent_task_id": task_id},
+    )
+    queue.push(task, start_agent)
+
+    console.print(
+        f"[green]✓[/] Fix task created: [bold]{task.id}[/]"
+        f" (from {task_id})"
+    )
+    console.print(f"  Starting agent: {start_agent}\n")
+
+    def _on_stage(t: Task, stage) -> None:
+        status_color = {
+            "completed": "green",
+            "approved": "green",
+            "rejected": "red",
+            "failed": "red",
+        }.get(stage.gate_result or "completed", "blue")
+
+        console.print(
+            f"  [{status_color}]stage {stage.stage_number}[/] "
+            f"[bold]{stage.agent_id}[/] → "
+            f"{(stage.output_text[:80] + '...') if len(stage.output_text) > 80 else stage.output_text}"
+        )
+
+    result = pipeline.run_task(
+        task,
+        start_agent,
+        input_text=followup_input,
+        on_stage_complete=_on_stage,
+    )
+
+    console.print()
+    if result.status == TaskStatus.completed:
+        console.print(f"[green]✓ Completed[/] {result.id}")
+    elif result.status == TaskStatus.awaiting_gate:
+        console.print(
+            f"[yellow]⏸ Awaiting gate[/] {result.id}\n"
+            f"  Proceed with 'aqm approve {result.id}' or "
+            f"'aqm reject {result.id} -r \"reason\"'."
+        )
+    elif result.status == TaskStatus.failed:
+        console.print(f"[red]✗ Failed[/] {result.id}")
+    else:
+        console.print(f"[dim]Status: {result.status.value}[/] {result.id}")
 
 
 # ── pull / publish / search (registry) ──────────────────────────────────

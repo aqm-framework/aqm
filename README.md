@@ -238,6 +238,29 @@ If a human gate is encountered:
   'aqm reject T-A3F2B1 -r "reason"'.
 ```
 
+### `aqm fix`
+
+Follow-up on a previous task. Carries over the full `context.md` so agents understand the previous work and can make targeted corrections.
+
+```bash
+aqm fix T-A3F2B1 "The login button color should be blue, not red"
+aqm fix T-A3F2B1 "Authentication fails on mobile"
+aqm fix T-A3F2B1 "Update API endpoint to use v2" --agent developer
+```
+
+Output:
+```
+✓ Fix task created: T-C4D5E6 (from T-A3F2B1)
+  Starting agent: planner
+
+  stage 1 planner → Analyzed previous context, fixing color...
+  stage 2 developer → Updated button color to blue...
+
+✓ Completed T-C4D5E6
+```
+
+Use `fix` for any follow-up — bug reports, corrections, refinements. One command covers all iteration.
+
 ### `aqm status`
 
 View task status.
@@ -408,7 +431,7 @@ The file has three top-level keys: `params` (variable declarations), `imports` (
 
 ### Params — Parameterization for Reusability
 
-Params make pipelines portable. Declare variables with types and defaults, then reference them anywhere using `${{ params.var_name }}` syntax.
+Params make pipelines portable. Declare variables with types and defaults, then reference them anywhere using `${{ params.var_name }}` syntax. Add `prompt` and `auto_detect` to create interactive setup flows.
 
 ```yaml
 params:
@@ -420,6 +443,14 @@ params:
     type: string        # string | number | boolean
     required: true
     description: "Path to the project root"
+
+  # Interactive param with auto-detection
+  primary_color:
+    type: string
+    required: true
+    description: "Primary brand color hex code"
+    prompt: "What is the primary brand color?"                    # question shown during aqm run
+    auto_detect: "Analyze CSS/config files for primary color"     # LLM instruction for auto-fill
 
   max_retries:
     type: number
@@ -433,10 +464,43 @@ agents:
         args: ["${{ params.project_path }}"]
 ```
 
+**Interactive setup with `prompt` + `auto_detect`:**
+
+When you pull a shared pipeline, params can ask questions interactively:
+
+```yaml
+params:
+  primary_color:
+    type: string
+    required: true
+    prompt: "What is the primary brand color?"
+    auto_detect: "Analyze the project's CSS/tailwind config and extract the primary color"
+
+  project_name:
+    type: string
+    required: true
+    prompt: "What is the project name?"
+    auto_detect: "Read package.json or pyproject.toml and extract the project name"
+```
+
+When you run `aqm run`, each unresolved param with a `prompt` shows an interactive setup:
+
+```
+? What is the primary brand color?
+  [1] Enter manually
+  [2] Auto-detect from project
+  Choice [1]: 2
+  Detecting...
+  Detected: #3B82F6
+  Use this value? [Y/n]: Y
+```
+
+This makes pipelines truly portable — pull a design pipeline, and it asks the right questions for your project.
+
 **Override params at runtime:**
 
 ```bash
-# Via CLI flags
+# Via CLI flags (skips interactive prompts)
 aqm run "Build feature" --param model=claude-opus-4-6 --param project_path=/my/project
 
 # Via overrides file (.aqm/params.yaml)
@@ -445,12 +509,12 @@ echo "project_path: /my/project" >> .aqm/params.yaml
 aqm run "Build feature"
 ```
 
-**Resolution priority:** CLI flags > params.yaml file > default values.
+**Resolution priority:** CLI flags > params.yaml file > interactive prompt > default values.
 
 This is what makes the "pull and customize" workflow possible:
 ```bash
 aqm pull software-dev-pipeline
-# Edit .aqm/params.yaml with your values
+# Interactive prompts fill in project-specific values
 aqm run "Build login feature"
 ```
 
@@ -914,7 +978,6 @@ In this example, the QA agent analyzes test results and autonomously decides:
 | [YAML Specification](docs/spec.md) | Independent `agents.yaml` format spec (`apiVersion: aqm/v0.1`), field reference, processing order, versioning policy |
 | [JSON Schema](schema/agents-schema.json) | Machine-readable schema for validation and IDE autocomplete |
 | [Competitive Analysis](docs/competitive-analysis.md) | Positioning vs. LangGraph, CrewAI, AutoGen, OpenSWE, Copilot, Vertex AI |
-| [Launch Playbook](docs/launch-playbook.md) | Launch sequence, channel strategy (HN/Reddit/Twitter/Dev.to drafts), first contributor plan |
 | [Seed Pipelines](examples/README.md) | 10 ready-to-use pipelines with feature matrix |
 | [Contributing](CONTRIBUTING.md) | How to contribute pipelines (equal to code!), submission template, review process |
 
@@ -952,8 +1015,7 @@ aqm/
 ├── docs/
 │   ├── concepts.md           # Core concepts guide
 │   ├── spec.md               # YAML format specification
-│   ├── competitive-analysis.md
-│   └── launch-playbook.md
+│   └── competitive-analysis.md
 ├── examples/                  # 10 seed pipelines
 └── tests/
 ```
@@ -974,6 +1036,8 @@ aqm/
 - [x] `extends` / `abstract`: agent inheritance for DRY definitions
 - [x] `imports`: reuse agents across pipelines from external files
 - [x] 10 seed pipelines covering software, content, legal, data, and more
+- [x] Interactive params: `prompt` + `auto_detect` for guided pipeline setup
+- [x] Follow-up tasks: `aqm fix` for multi-turn iteration with context carry-over
 
 ### v0.2 — Connections
 - [ ] Enhanced per-agent MCP server support

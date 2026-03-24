@@ -32,6 +32,8 @@ class ParamDefinition(BaseModel):
     default: Optional[Any] = None
     required: bool = False
     description: str = ""
+    prompt: Optional[str] = None
+    auto_detect: Optional[str] = None
 
     @field_validator("default", mode="before")
     @classmethod

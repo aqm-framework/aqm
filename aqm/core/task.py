@@ -51,6 +51,7 @@ class Task(BaseModel):
     current_queue: Optional[str] = None
     stages: list[StageRecord] = Field(default_factory=list)
     context_dir: Optional[str] = None
+    parent_task_id: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = Field(default_factory=dict)

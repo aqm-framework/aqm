@@ -82,6 +82,8 @@ params:
 | `default` | any | No | `null` | Default value. Type should match the declared `type`. |
 | `required` | boolean | No | `false` | If `true`, the parameter must be provided via CLI `--param` or a `params.yaml` override file. |
 | `description` | string | No | `""` | Human-readable description. Shown in error messages. |
+| `prompt` | string | No | `null` | Interactive question shown during `aqm run` when the param has no value. Triggers an interactive setup flow. |
+| `auto_detect` | string | No | `null` | LLM instruction for auto-detecting the param value from the project. When set, the interactive prompt offers an auto-detect option. |
 
 ```yaml
 params:
@@ -97,10 +99,48 @@ params:
     default: false
 ```
 
+#### Interactive Setup (prompt + auto_detect)
+
+When a param has a `prompt` field and no resolved value, `aqm run` presents an interactive prompt:
+
+```yaml
+params:
+  primary_color:
+    type: string
+    required: true
+    description: "Primary brand color hex code (e.g. #3B82F6)"
+    prompt: "What is the primary brand color?"
+    auto_detect: "Analyze the project's CSS/tailwind config and extract the primary color hex code"
+
+  project_name:
+    type: string
+    required: true
+    prompt: "What is the project name?"
+    auto_detect: "Read package.json or pyproject.toml and extract the project name"
+
+  design_system:
+    type: string
+    prompt: "Which design system does this project use?"
+    auto_detect: "Analyze the project dependencies and identify the design system (e.g. Tailwind, MUI, Chakra)"
+```
+
+When running `aqm run`, the user sees:
+
+```
+? What is the primary brand color?
+  Primary brand color hex code (e.g. #3B82F6)
+  [1] Enter manually
+  [2] Auto-detect from project
+  Choice [1]:
+```
+
+If the user selects `[2]`, the CLI runs the `auto_detect` instruction via Claude CLI and presents the result for confirmation.
+
 **Resolution priority** (highest first):
 1. CLI overrides (`--param key=value`)
 2. Override file (`.aqm/params.yaml`)
-3. Default values from param definitions
+3. Interactive prompt (when `prompt` is set)
+4. Default values from param definitions
 
 ---
 
@@ -308,6 +348,50 @@ A conforming runtime MUST process an agents.yaml file in the following order:
        v
   Ready for execution
 ```
+
+---
+
+## Follow-Up Tasks (fix)
+
+A conforming runtime SHOULD support follow-up tasks that reference a previous task's context. This enables multi-turn workflows where the user can iterate on a completed task.
+
+### Semantics
+
+A follow-up task:
+
+1. References a **parent task ID** (e.g. `T-A3F2B1`)
+2. Inherits the parent task's accumulated `context.md` as input context
+3. Creates a new task with its own ID, prepending the parent context to the new request
+4. Tracks the relationship via `parent_task_id` in task metadata
+
+### CLI Command
+
+```bash
+# Follow-up on a previous task — carries over full context
+aqm fix T-A3F2B1 "The login button color should be blue, not red"
+aqm fix T-A3F2B1 "Authentication fails when password contains special characters"
+
+# Supports --agent and --param flags
+aqm fix T-A3F2B1 "Update the API endpoint" --agent developer
+aqm fix T-A3F2B1 "Tests fail on CI" --param model=claude-opus-4-6
+```
+
+### Input Construction
+
+The follow-up task's input is constructed as:
+
+```
+[FIX — follow-up from T-A3F2B1]
+Description: <parent task description>
+
+--- Previous context ---
+<parent task context.md content>
+
+--- Fix request ---
+<user's new input>
+```
+
+This allows any agent in the pipeline to understand the full history and the specific follow-up request.
 
 ---
 

@@ -40,7 +40,7 @@
   "definitions": {
     "ParamDefinition": {
       "type": "object",
-      "description": "A full parameter declaration with type, default, required flag, and description.",
+      "description": "A full parameter declaration with type, default, required flag, description, interactive prompt, and auto-detection.",
       "additionalProperties": false,
       "properties": {
         "type": {
@@ -62,6 +62,14 @@
           "type": "string",
           "default": "",
           "description": "Human-readable description of the parameter. Shown in error messages when a required param is missing."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "Interactive question shown to the user when this param has no value during `aqm run`. E.g. \"What is the primary brand color?\". When set, the CLI presents a choice: enter manually or auto-detect."
+        },
+        "auto_detect": {
+          "type": "string",
+          "description": "LLM instruction for auto-detecting the param value from the project. E.g. \"Analyze the project's CSS files and extract the primary color hex code\". When set, the interactive prompt offers an auto-detect option that runs this instruction via Claude CLI."
         }
       }
     },
