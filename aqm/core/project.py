@@ -574,7 +574,9 @@ def _fix_required_params(yaml_text: str) -> str:
     These should not be params — they are task inputs ({{ input }}).
     This function either adds a default or removes `required: true`.
     """
-    data = yaml.safe_load(yaml_text)
+    import yaml as _yaml
+
+    data = _yaml.safe_load(yaml_text)
     if not isinstance(data, dict) or "params" not in data:
         return yaml_text
 
@@ -593,7 +595,7 @@ def _fix_required_params(yaml_text: str) -> str:
 
     if modified:
         data["params"] = params
-        return yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        return _yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
     return yaml_text
 
