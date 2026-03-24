@@ -213,21 +213,30 @@ def init(path: str | None) -> None:
     """
     target = Path(path) if path else None
     project_dir = (target or Path.cwd()).resolve()
-    existing_yaml = project_dir / ".aqm" / "agents.yaml"
 
-    if existing_yaml.exists():
+    # Check for existing pipelines (both legacy and new locations)
+    existing_pipelines = []
+    legacy_yaml = project_dir / ".aqm" / "agents.yaml"
+    pipelines_dir = project_dir / ".aqm" / "pipelines"
+    if legacy_yaml.exists():
+        existing_pipelines.append(legacy_yaml)
+    if pipelines_dir.exists():
+        existing_pipelines.extend(pipelines_dir.glob("*.yaml"))
+
+    if existing_pipelines:
         console.print(
-            f"\n[yellow]Warning:[/] .aqm/agents.yaml already exists at:\n"
-            f"  {existing_yaml}\n"
+            f"\n[yellow]Warning:[/] Existing pipeline(s) found in .aqm/:\n"
+            f"  {', '.join(p.name for p in existing_pipelines)}\n"
         )
         overwrite = click.confirm(
-            "  Delete existing pipeline and start fresh?", default=False
+            "  Delete all existing pipelines and start fresh?", default=False
         )
         if not overwrite:
-            console.print("[dim]Cancelled. Existing pipeline unchanged.[/]")
+            console.print("[dim]Cancelled. Existing pipelines unchanged.[/]")
             return
-        existing_yaml.unlink()
-        console.print("[dim]Existing agents.yaml removed.[/]\n")
+        for p in existing_pipelines:
+            p.unlink()
+        console.print("[dim]Existing pipelines removed.[/]\n")
 
     console.print("\n[bold]How would you like to set up your pipeline?[/]\n")
     console.print("  [magenta][1][/] AI-generate from description")
@@ -600,7 +609,8 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
     pipeline = Pipeline(agents, queue, root)
 
     task_priority = TaskPriority[priority]
-    task = Task(description=input_text, priority=task_priority)
+    task_metadata = {"pipeline": pipeline_name} if pipeline_name else {}
+    task = Task(description=input_text, priority=task_priority, metadata=task_metadata)
     queue.push(task, start_agent)
 
     priority_label = f" [{priority}]" if priority != "normal" else ""
@@ -758,8 +768,10 @@ def list_tasks(status_filter: str | None) -> None:
 def approve(task_id: str, reason: str) -> None:
     """Approve human gate."""
     root = _require_project()
-    agents = load_agents(get_agents_yaml_path(root))
     queue = _get_queue(root)
+    task = queue.get(task_id)
+    pipe_name = task.metadata.get("pipeline") if task else None
+    agents = load_agents(get_agents_yaml_path(root, pipe_name))
 
     from aqm.core.pipeline import Pipeline
 
@@ -778,8 +790,10 @@ def approve(task_id: str, reason: str) -> None:
 def reject(task_id: str, reason: str) -> None:
     """Reject human gate."""
     root = _require_project()
-    agents = load_agents(get_agents_yaml_path(root))
     queue = _get_queue(root)
+    task = queue.get(task_id)
+    pipe_name = task.metadata.get("pipeline") if task else None
+    agents = load_agents(get_agents_yaml_path(root, pipe_name))
 
     from aqm.core.pipeline import Pipeline
 
@@ -941,13 +955,30 @@ def context(task_id: str) -> None:
 @cli.command()
 @click.argument(
     "path",
-    type=click.Path(exists=True),
-    default=".aqm/agents.yaml",
+    type=click.Path(),
+    default=None,
     required=False,
 )
-def validate(path: str) -> None:
+@click.option("--pipeline", "pipeline_name", default=None, help="Pipeline name to validate")
+def validate(path: str | None, pipeline_name: str | None) -> None:
     """Validate agents.yaml against the JSON Schema."""
     import json
+
+    # Resolve path: explicit arg > --pipeline > default pipeline
+    if path is None:
+        root = find_project_root()
+        if root:
+            try:
+                resolved = get_agents_yaml_path(root, pipeline_name)
+                path = str(resolved)
+            except FileNotFoundError:
+                pass
+        if path is None:
+            path = ".aqm/agents.yaml"  # legacy fallback
+
+    if not Path(path).exists():
+        console.print(f"[red]Error:[/] File not found: {path}")
+        sys.exit(1)
 
     try:
         from jsonschema import Draft7Validator, ValidationError
@@ -1140,7 +1171,8 @@ def fix(task_id: str, input_text: str, agent: str | None, params: tuple[str, ...
         parent_context = context_path.read_text(encoding="utf-8")
 
     try:
-        agents = load_agents(get_agents_yaml_path(root), cli_params=cli_params or None)
+        pipe_name = parent_task.metadata.get("pipeline") if parent_task else None
+        agents = load_agents(get_agents_yaml_path(root, pipe_name), cli_params=cli_params or None)
     except (ValueError, FileNotFoundError) as e:
         console.print(f"[red]Error:[/] {e}")
         sys.exit(1)
@@ -1294,21 +1326,19 @@ def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
         )
         sys.exit(1)
 
-    # Copy to project
-    target = get_agents_yaml_path(root)
+    # Save to pipelines directory
+    import yaml as _yaml
 
-    if target.exists():
+    existing = list_pipelines(root)
+    if pipeline_name in existing:
         if not click.confirm(
-            f"  .aqm/agents.yaml already exists. Overwrite?",
+            f"  Pipeline '{pipeline_name}' already exists. Overwrite?",
             default=False,
         ):
             console.print("[dim]Cancelled.[/]")
             return
 
-    target.write_text(content, encoding="utf-8")
-
-    # Count agents for summary
-    import yaml as _yaml
+    target = save_pipeline(root, pipeline_name, content)
 
     data = _yaml.safe_load(content)
     agent_count = len(data.get("agents", []))
@@ -1322,7 +1352,7 @@ def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
         console.print(f"  Params: {param_count}")
     console.print(
         f"  Installed to: {target}\n"
-        f"\n  Run [bold]aqm run \"your task\"[/] to start the pipeline."
+        f"\n  Run [bold]aqm run --pipeline {pipeline_name} \"your task\"[/] to start."
     )
 
 
@@ -1358,7 +1388,7 @@ def publish(
     agents_yaml = get_agents_yaml_path(root)
 
     if not agents_yaml.exists():
-        console.print("[red]Cannot find .aqm/agents.yaml.[/]")
+        console.print("[red]Cannot find pipeline YAML file.[/]")
         return
 
     # Validate the YAML first
