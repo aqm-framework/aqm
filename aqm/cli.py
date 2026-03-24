@@ -369,12 +369,53 @@ def _init_from_ai(target: Path | None) -> None:
 
     # Validate before writing
     import yaml as _yaml
+    is_valid = False
     try:
         data = _yaml.safe_load(generated)
-        if not isinstance(data, dict) or "agents" not in data:
-            console.print("[yellow]Warning:[/] Generated YAML may not be valid. Proceeding anyway.")
+        if isinstance(data, dict) and "agents" in data:
+            is_valid = True
+        else:
+            console.print(
+                "[yellow]Warning:[/] Generated YAML is missing 'agents' key."
+            )
     except Exception:
-        console.print("[yellow]Warning:[/] Could not parse generated YAML. Proceeding anyway.")
+        console.print(
+            "[yellow]Warning:[/] Generated output is not valid YAML."
+        )
+
+    if not is_valid:
+        fallback = click.prompt(
+            "  [1] Use anyway  [2] Regenerate  [3] Use default template\n  Choice",
+            type=click.IntRange(1, 3),
+            default=2,
+        )
+        if fallback == 2:
+            console.print(f"\n[dim]Regenerating...[/]")
+            try:
+                generated = generate_agents_yaml(
+                    description,
+                    project_dir=project_dir if has_project else None,
+                )
+                console.print("\n[bold]Regenerated agents.yaml:[/]\n")
+                from rich.syntax import Syntax as _Syn
+                console.print(_Syn(generated, "yaml", theme="monokai", line_numbers=True))
+                # Re-validate
+                try:
+                    data = _yaml.safe_load(generated)
+                    if not isinstance(data, dict) or "agents" not in data:
+                        console.print("[yellow]Warning:[/] Still not valid. Using anyway.")
+                except Exception:
+                    console.print("[yellow]Warning:[/] Still not valid YAML. Using anyway.")
+            except Exception as e:
+                console.print(f"[red]Regeneration failed:[/] {e}")
+                console.print("[dim]Using default template.[/]")
+                root = init_project(target)
+                console.print(f"[green]✓[/] .aqm/ initialized with default template")
+                return
+        elif fallback == 3:
+            root = init_project(target)
+            console.print(f"\n[green]✓[/] .aqm/ initialized with default template")
+            return
 
     root = init_project(target, yaml_content=generated)
     agents_yaml = get_agents_yaml_path(root)

@@ -157,29 +157,29 @@ def generate_agents_yaml(
                 f"- Match the project's language/framework in system prompts\n"
             )
 
-    prompt = f"""You are an expert at creating aqm pipeline configurations.
+    prompt = f"""You are a YAML generator. You output ONLY valid YAML. No prose, no explanations, no markdown.
 
-Based on the user's description, generate a valid agents.yaml file.
+TASK: Generate an aqm agents.yaml pipeline configuration.
 
-## YAML Specification Reference
+SPEC:
 {spec}
 {project_context}
-## User's Pipeline Description
-{description}
+USER REQUEST: {description}
 
-## Instructions
-- Output ONLY the raw YAML content, no markdown fences, no explanation
-- Must start with `apiVersion: aqm/v0.1`
-- Include appropriate agents with clear system_prompts
-- Use proper handoff conditions (always, on_approve, on_reject, auto)
-- Choose runtime wisely: `api` for planning/reviewing, `claude_code` for execution
-- Add gates where quality checks make sense
-- Add MCP servers where agents need external tool access
-- Use params for configurable values when appropriate
-"""
+RULES:
+1. First line of output MUST be: apiVersion: aqm/v0.1
+2. Output raw YAML only — no ```yaml fences, no comments explaining what you did, no introductory text
+3. Every agent needs: id, name, runtime (api or claude_code), system_prompt
+4. Use handoff conditions: always, on_approve, on_reject, auto
+5. Use runtime: api for planning/reviewing, claude_code for code execution
+6. Add gates (type: llm or human) where quality checks make sense
+7. Add MCP servers where agents need external tools
+8. Use params for configurable values
+
+IMPORTANT: Your entire response must be parseable as YAML. Do not write anything before or after the YAML."""
 
     result = subprocess.run(
-        ["claude", "-p", prompt, "--print"],
+        ["claude", "-p", prompt, "--print", "--output-format", "text"],
         capture_output=True,
         text=True,
         timeout=120,
@@ -193,15 +193,47 @@ Based on the user's description, generate a valid agents.yaml file.
         raise RuntimeError("Claude returned empty output")
 
     # Strip markdown fences if present
-    if generated.startswith("```"):
-        lines = generated.split("\n")
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        generated = "\n".join(lines)
+    generated = _strip_markdown_fences(generated)
+
+    # Strip any leading non-YAML prose before apiVersion
+    generated = _strip_leading_prose(generated)
 
     return generated + "\n"
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Remove markdown code fences from generated output."""
+    lines = text.split("\n")
+
+    # Remove opening fence (```yaml, ```yml, ```)
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+
+    # Remove closing fence
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+
+    return "\n".join(lines)
+
+
+def _strip_leading_prose(text: str) -> str:
+    """Strip any non-YAML text before the actual YAML content.
+
+    Looks for 'apiVersion:' line and discards everything before it.
+    """
+    lines = text.split("\n")
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # Found the start of actual YAML
+        if stripped.startswith("apiVersion:"):
+            return "\n".join(lines[i:])
+        # Also accept lines starting with valid top-level keys
+        if stripped.startswith(("agents:", "params:", "imports:")):
+            return "\n".join(lines[i:])
+
+    # No recognizable YAML start found — return as-is
+    return text
 
 
 def get_agents_yaml_path(root: Path) -> Path:
