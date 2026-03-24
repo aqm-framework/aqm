@@ -28,8 +28,11 @@ from rich.table import Table
 
 from aqm.core.agent import load_agents
 from aqm.core.project import (
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
     deep_analyze_project,
     delete_pipeline,
+    edit_pipeline_yaml,
     find_project_root,
     generate_agents_yaml,
     generate_clarifying_questions,
@@ -46,6 +49,21 @@ from aqm.core.project import (
 from aqm.core.task import Task, TaskStatus
 
 console = Console()
+
+
+def _pick_model() -> str:
+    """Prompt user to select a Claude model for AI generation."""
+    console.print("\n[bold]Select AI model:[/]")
+    for i, (model_id, label) in enumerate(AVAILABLE_MODELS, 1):
+        default_mark = " [green](default)[/]" if model_id == DEFAULT_MODEL else ""
+        console.print(f"  [{i}] {label}{default_mark}")
+    idx = click.prompt(
+        "\n  Model",
+        type=click.IntRange(1, len(AVAILABLE_MODELS)),
+        default=1,
+    )
+    return AVAILABLE_MODELS[idx - 1][0]
+
 
 
 def _prompt_for_params(
@@ -212,13 +230,17 @@ def init(path: str | None) -> None:
         console.print("[dim]Existing agents.yaml removed.[/]\n")
 
     console.print("\n[bold]How would you like to set up your pipeline?[/]\n")
-    console.print("  [green][1][/] Create default template")
-    console.print("  [blue][2][/] Pull from registry")
-    console.print("  [magenta][3][/] AI-generate from description")
+    console.print("  [magenta][1][/] AI-generate from description")
+    console.print("  [green][2][/] Create default template")
+    console.print("  [blue][3][/] Pull from registry")
 
     choice = click.prompt("\n  Choice", type=click.IntRange(1, 3), default=1)
 
     if choice == 1:
+        # AI-generate from description
+        _init_from_ai(target)
+
+    elif choice == 2:
         # Default template
         root = init_project(target)
         agents_yaml = get_agents_yaml_path(root)
@@ -229,13 +251,9 @@ def init(path: str | None) -> None:
             f"  Run [bold]aqm serve[/] to open the web dashboard."
         )
 
-    elif choice == 2:
-        # Pull from registry — show search results first
-        _init_from_registry(target)
-
     elif choice == 3:
-        # AI-generate from description
-        _init_from_ai(target)
+        # Pull from registry
+        _init_from_registry(target)
 
 
 def _init_from_registry(target: Path | None) -> None:
@@ -310,6 +328,10 @@ def _init_from_ai(target: Path | None) -> None:
     """AI-generate agents.yaml from user description with project analysis."""
     project_dir = (Path(target) if target else Path.cwd()).resolve()
 
+    # Step 0: Select model
+    selected_model = _pick_model()
+    console.print(f"  [dim]Using: {selected_model}[/]\n")
+
     # Step 1: Get pipeline description first
     console.print(
         "\n[bold]Describe the pipeline you want to create.[/]\n"
@@ -339,7 +361,7 @@ def _init_from_ai(target: Path | None) -> None:
     if has_project:
         from aqm.core.project import analyze_project
         with console.status("[bold cyan]Analyzing project...[/]", spinner="dots"):
-            analysis = analyze_project(project_dir)
+            analysis = analyze_project(project_dir, model=selected_model)
         if analysis:
             console.print(f"\n[bold]Project analysis:[/]\n")
             console.print(f"[dim]{analysis}[/]\n")
@@ -350,7 +372,7 @@ def _init_from_ai(target: Path | None) -> None:
     # Step 3: Generate clarifying questions and collect answers
     project_analysis_text = analysis if has_project else ""
     with console.status("[bold cyan]Preparing questions...[/]", spinner="dots"):
-        questions = generate_clarifying_questions(description, project_analysis_text)
+        questions = generate_clarifying_questions(description, project_analysis_text, model=selected_model)
 
     qa_context = ""
     if questions:
@@ -385,7 +407,7 @@ def _init_from_ai(target: Path | None) -> None:
     if has_project and qa_context:
         with console.status("[bold cyan]Investigating project based on your answers...[/]", spinner="dots"):
             deep_analysis_text = deep_analyze_project(
-                project_dir, qa_context, initial_analysis=analysis,
+                project_dir, qa_context, initial_analysis=analysis, model=selected_model,
             )
         if deep_analysis_text:
             console.print(f"\n[bold]Additional findings:[/]\n")
@@ -411,6 +433,7 @@ def _init_from_ai(target: Path | None) -> None:
                 qa_context=qa_context,
                 deep_analysis=deep_analysis_text,
                 on_status=_update_status,
+                model=selected_model,
             )
     except Exception as e:
         console.print(f"[red]Generation failed:[/] {e}")
@@ -440,6 +463,7 @@ def _init_from_ai(target: Path | None) -> None:
                 qa_context=qa_context,
                 deep_analysis=deep_analysis_text,
                 on_status=_print_status,
+                model=selected_model,
             )
             console.print("\n[bold]Regenerated agents.yaml:[/]\n")
             console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
@@ -952,11 +976,13 @@ def validate(path: str) -> None:
         )
         sys.exit(1)
 
-    # Load the JSON Schema from the package
-    schema_path = Path(__file__).resolve().parent.parent / "schema" / "agents-schema.json"
+    # Load the JSON Schema — try package-internal path first, then project root
+    schema_path = Path(__file__).resolve().parent / "schema" / "agents-schema.json"
+    if not schema_path.exists():
+        schema_path = Path(__file__).resolve().parent.parent / "schema" / "agents-schema.json"
     if not schema_path.exists():
         console.print(
-            f"[red]Error:[/] JSON Schema not found at {schema_path}.\n"
+            f"[red]Error:[/] JSON Schema not found.\n"
             "  Ensure the schema/ directory is installed with the package."
         )
         sys.exit(1)
@@ -1606,6 +1632,9 @@ def pipeline_create_cmd(name: str, ai: bool, template: bool) -> None:
 
 def _init_from_ai_for_pipeline(root: Path, name: str) -> None:
     """AI-generate a pipeline and save it with the given name."""
+    selected_model = _pick_model()
+    console.print(f"  [dim]Using: {selected_model}[/]\n")
+
     console.print(
         "\n[bold]Describe the pipeline you want to create.[/]\n"
     )
@@ -1624,7 +1653,7 @@ def _init_from_ai_for_pipeline(root: Path, name: str) -> None:
     if has_project:
         from aqm.core.project import analyze_project
         with console.status("[bold cyan]Analyzing project...[/]", spinner="dots"):
-            analysis = analyze_project(project_dir)
+            analysis = analyze_project(project_dir, model=selected_model)
         if analysis:
             console.print(f"\n[bold]Project analysis:[/]\n")
             console.print(f"[dim]{analysis}[/]\n")
@@ -1632,7 +1661,7 @@ def _init_from_ai_for_pipeline(root: Path, name: str) -> None:
     # Clarifying questions
     project_analysis_text = analysis if has_project else ""
     with console.status("[bold cyan]Preparing questions...[/]", spinner="dots"):
-        questions = generate_clarifying_questions(description, project_analysis_text)
+        questions = generate_clarifying_questions(description, project_analysis_text, model=selected_model)
 
     qa_context = ""
     if questions:
@@ -1662,7 +1691,7 @@ def _init_from_ai_for_pipeline(root: Path, name: str) -> None:
     if has_project and qa_context:
         with console.status("[bold cyan]Investigating project based on your answers...[/]", spinner="dots"):
             deep_analysis_text = deep_analyze_project(
-                project_dir, qa_context, initial_analysis=analysis,
+                project_dir, qa_context, initial_analysis=analysis, model=selected_model,
             )
         if deep_analysis_text:
             console.print(f"\n[bold]Additional findings:[/]\n")
@@ -1679,6 +1708,7 @@ def _init_from_ai_for_pipeline(root: Path, name: str) -> None:
                 qa_context=qa_context,
                 deep_analysis=deep_analysis_text,
                 on_status=_update_status,
+                model=selected_model,
             )
     except Exception as e:
         console.print(f"[red]Generation failed:[/] {e}")
@@ -1735,6 +1765,65 @@ def pipeline_default_cmd(name: str | None) -> None:
 
     set_default_pipeline(root, name)
     console.print(f"[green]✓[/] Default pipeline set to '{name}'.")
+
+
+@pipeline_group.command(name="edit")
+@click.argument("name", required=False)
+def pipeline_edit_cmd(name: str | None) -> None:
+    """Edit a pipeline with AI.  Example: aqm pipeline edit default"""
+    root = _require_project()
+
+    if name is None:
+        name = get_default_pipeline(root) or "default"
+
+    pipelines = list_pipelines(root)
+    if name not in pipelines:
+        console.print(f"[red]Error:[/] Pipeline '{name}' not found.")
+        console.print(f"  Available: {', '.join(pipelines)}")
+        sys.exit(1)
+
+    # Read current YAML
+    pipeline_path = get_pipeline_path(root, name)
+    current_yaml = pipeline_path.read_text(encoding="utf-8")
+
+    # Show current YAML
+    from rich.syntax import Syntax
+    console.print(f"\n[bold]Current pipeline: {name}[/]\n")
+    console.print(Syntax(current_yaml, "yaml", theme="monokai", line_numbers=True))
+
+    # Model selection
+    selected_model = _pick_model()
+    console.print(f"  [dim]Using: {selected_model}[/]\n")
+
+    # Get edit instruction
+    edit_instruction = click.prompt(
+        "\n  What would you like to change?", type=str,
+    )
+    edit_instruction = " ".join(edit_instruction.splitlines()).strip()
+
+    # Edit with AI
+    try:
+        with console.status("[bold cyan]Editing pipeline...[/]", spinner="dots") as status:
+            def _update_status(msg: str) -> None:
+                status.update(f"[bold cyan]{msg}[/]")
+            modified = edit_pipeline_yaml(
+                current_yaml, edit_instruction,
+                on_status=_update_status,
+                model=selected_model,
+            )
+    except Exception as e:
+        console.print(f"[red]Edit failed:[/] {e}")
+        return
+
+    # Preview changes
+    console.print(f"\n[bold]Modified pipeline:[/]\n")
+    console.print(Syntax(modified, "yaml", theme="monokai", line_numbers=True))
+
+    if click.confirm("\n  Apply these changes?", default=True):
+        save_pipeline(root, name, modified)
+        console.print(f"[green]✓[/] Pipeline '{name}' updated.")
+    else:
+        console.print("[dim]Changes discarded.[/]")
 
 
 if __name__ == "__main__":
