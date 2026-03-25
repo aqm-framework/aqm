@@ -38,7 +38,7 @@ async def subscribe(task_id: str) -> AsyncGenerator[str, None]:
                 event = await asyncio.wait_for(q.get(), timeout=30)
                 yield f"event: {event['event']}\ndata: {event['data']}\n\n"
                 # If task is done, close
-                if event["event"] in ("task_complete", "task_failed", "task_cancelled"):
+                if event["event"] in ("task_complete", "task_failed", "task_cancelled", "conversation_end"):
                     return
             except asyncio.TimeoutError:
                 # Send keepalive to prevent timeout

@@ -301,6 +301,96 @@ class Pipeline:
             task.status = TaskStatus.in_progress
             self.queue.update(task)
 
+            # ── Session node: delegate to conversation loop ──
+            if agent.type == "session":
+                logger.info(
+                    f"[Pipeline] {task.id} -> session '{agent.id}' "
+                    f"(participants: {agent.participants})"
+                )
+                try:
+                    output = self._run_session(
+                        session=agent,
+                        task=task,
+                        input_text=current_input,
+                        ctx_file=ctx_file,
+                        on_turn_start=on_stage_start,
+                        on_turn_complete=on_stage_complete,
+                        on_output=on_output,
+                    )
+                    # Record the session as a single stage
+                    stage = StageRecord(
+                        stage_number=task.next_stage_number,
+                        agent_id=agent.id,
+                        task_name="session",
+                        input_text=current_input,
+                        output_text=output,
+                        finished_at=datetime.now(timezone.utc),
+                    )
+                    task.add_stage(stage)
+                    self.queue.update(task)
+                    ctx_file.append_stage(
+                        stage_number=stage.stage_number,
+                        agent_id=agent.id,
+                        task_name="session",
+                        status="completed",
+                        input_text=current_input,
+                        output_text=output,
+                    )
+                    if on_stage_complete:
+                        on_stage_complete(task, stage)
+                except Exception as e:
+                    stage = StageRecord(
+                        stage_number=task.next_stage_number,
+                        agent_id=agent.id,
+                        task_name="session",
+                        input_text=current_input,
+                        output_text=f"ERROR: {e}",
+                        finished_at=datetime.now(timezone.utc),
+                    )
+                    task.add_stage(stage)
+                    task.status = TaskStatus.failed
+                    self.queue.update(task)
+                    logger.error(
+                        f"[Pipeline] {task.id} session '{agent.id}' failed: {e}"
+                    )
+                    return task
+
+                # Session nodes skip gate evaluation; proceed to handoffs
+                gate_result: Optional[GateResult] = None
+                # Jump to handoff resolution below
+                # (output variable is set from session result)
+                handoff_targets = self._resolve_handoffs(
+                    agent, gate_result, output, current_input
+                )
+
+                if not handoff_targets:
+                    task.status = TaskStatus.completed
+                    self.queue.update(task)
+                    logger.info(f"[Pipeline] {task.id} completed")
+                    return task
+
+                if len(handoff_targets) > 1:
+                    for extra_agent_id, extra_payload in handoff_targets[1:]:
+                        child = Task(
+                            description=f"[fan-out from {task.id}] {task.description}",
+                            metadata={"parent_task_id": task.id},
+                        )
+                        self.queue.push(child, extra_agent_id)
+                        self.run_task(
+                            child, extra_agent_id,
+                            input_text=extra_payload,
+                            on_stage_complete=on_stage_complete,
+                            on_stage_start=on_stage_start,
+                            on_output=on_output,
+                        )
+
+                next_agent_id, next_payload = handoff_targets[0]
+                ctx_file.save_payload(next_payload)
+                current_input = next_payload
+                current_agent_id = next_agent_id
+                continue
+
+            # ── Regular agent execution ──
             logger.info(
                 f"[Pipeline] {task.id} -> agent '{agent.id}' "
                 f"(stage {task.next_stage_number})"
@@ -523,3 +613,220 @@ class Pipeline:
             on_stage_start=on_stage_start,
             on_output=on_output,
         )
+
+    # ------------------------------------------------------------------
+    # Conversational session execution
+    # ------------------------------------------------------------------
+
+    def _run_session(
+        self,
+        session: AgentDefinition,
+        task: Task,
+        input_text: str,
+        ctx_file: ContextFile,
+        on_turn_start=None,
+        on_turn_complete=None,
+        on_output=None,
+    ) -> str:
+        """Run a conversational session among participant agents.
+
+        Agents take turns in rounds.  Each agent sees the growing
+        transcript via ``{{ transcript }}`` in its system prompt.
+        The loop ends when consensus is detected or ``max_rounds``
+        is reached.
+
+        Returns the final session output (summary or last transcript).
+        """
+        from aqm.core.agent import ConsensusConfig
+        from aqm.core.chunks import ChunkManager, parse_chunk_directives
+
+        participants = [self.agents[pid] for pid in session.participants]
+        consensus_cfg = session.consensus or ConsensusConfig()
+        keyword = consensus_cfg.keyword.upper()
+        require = consensus_cfg.require  # "all" | "majority"
+        max_rounds = session.max_rounds
+
+        # Track which agents have agreed
+        agreements: dict[str, bool] = {a.id: False for a in participants}
+
+        # Initialise transcript
+        ctx_file.init_transcript(
+            topic=input_text,
+            participants=[a.id for a in participants],
+        )
+
+        # Initialise chunks (if configured)
+        chunk_mgr = ChunkManager(ctx_file.task_dir)
+        has_chunks = session.chunks is not None
+        if has_chunks and session.chunks.initial:
+            chunk_mgr.init_from_config(session.chunks.initial)
+
+        logger.info(
+            "[Pipeline] Session '%s' started (%d participants, max %d rounds)",
+            session.id,
+            len(participants),
+            max_rounds,
+        )
+
+        final_output = ""
+
+        for round_num in range(1, max_rounds + 1):
+            if is_cancelled(task.id):
+                break
+
+            # Determine turn order for this round
+            if session.turn_order == "moderator" and session.summary_agent:
+                # Moderator goes first, then the rest
+                order = []
+                for a in participants:
+                    if a.id == session.summary_agent:
+                        order.insert(0, a)
+                    else:
+                        order.append(a)
+            else:
+                order = list(participants)
+
+            for turn_idx, agent in enumerate(order):
+                if is_cancelled(task.id):
+                    break
+
+                transcript = ctx_file.read_transcript()
+
+                prompt = build_prompt(
+                    system_prompt_template=agent.system_prompt,
+                    input_text=input_text,
+                    context=ctx_file.read(),
+                    transcript=transcript,
+                    chunks=chunk_mgr.summary() if has_chunks else "",
+                )
+
+                stage_num = task.next_stage_number
+
+                if on_turn_start:
+                    on_turn_start(task, agent.id, stage_num)
+
+                runtime = self._get_runtime(agent)
+                message = runtime.run(prompt, agent, task, on_output=on_output)
+
+                # Record as a stage
+                stage = StageRecord(
+                    stage_number=stage_num,
+                    agent_id=agent.id,
+                    task_name=f"session:{session.id}:r{round_num}",
+                    input_text=f"[round {round_num}]",
+                    output_text=message,
+                    finished_at=datetime.now(timezone.utc),
+                )
+                task.add_stage(stage)
+                self.queue.update(task)
+
+                # Append to transcript
+                ctx_file.append_turn(
+                    round_number=round_num,
+                    agent_id=agent.id,
+                    message=message,
+                    is_round_start=(turn_idx == 0),
+                )
+
+                # Parse chunk directives from agent output
+                if has_chunks:
+                    parse_chunk_directives(message, chunk_mgr, agent.id)
+
+                if on_turn_complete:
+                    on_turn_complete(task, stage)
+
+                final_output = message
+
+                # Check consensus
+                if consensus_cfg.method == "vote":
+                    if keyword in message.upper():
+                        agreements[agent.id] = True
+                elif consensus_cfg.method == "moderator_decides":
+                    if (
+                        agent.id == session.summary_agent
+                        and keyword in message.upper()
+                    ):
+                        # Moderator calls consensus for everyone
+                        for k in agreements:
+                            agreements[k] = True
+
+            # End of round — check if consensus reached
+            agreed_count = sum(1 for v in agreements.values() if v)
+            total = len(agreements)
+
+            consensus_reached = False
+            if require == "all":
+                consensus_reached = agreed_count == total
+            elif require == "majority":
+                consensus_reached = agreed_count > total / 2
+
+            logger.info(
+                "[Pipeline] Session '%s' round %d: %d/%d agreed",
+                session.id,
+                round_num,
+                agreed_count,
+                total,
+            )
+
+            # Gate consensus on chunk completion
+            if consensus_reached and has_chunks and consensus_cfg.require_chunks_done:
+                if not chunk_mgr.all_done():
+                    consensus_reached = False
+                    logger.info(
+                        "[Pipeline] Session '%s' consensus votes met but "
+                        "chunks not all done — continuing",
+                        session.id,
+                    )
+
+            if consensus_reached:
+                logger.info(
+                    "[Pipeline] Session '%s' consensus reached at round %d",
+                    session.id,
+                    round_num,
+                )
+
+                # Run summary agent if specified
+                if session.summary_agent:
+                    summary_agent = self.agents[session.summary_agent]
+                    transcript = ctx_file.read_transcript()
+                    summary_prompt = build_prompt(
+                        system_prompt_template=summary_agent.system_prompt,
+                        input_text=input_text,
+                        context=ctx_file.read(),
+                        transcript=transcript,
+                        chunks=chunk_mgr.summary() if has_chunks else "",
+                    )
+                    runtime = self._get_runtime(summary_agent)
+                    final_output = runtime.run(
+                        summary_prompt, summary_agent, task,
+                        on_output=on_output,
+                    )
+
+                agreed_by = [k for k, v in agreements.items() if v]
+                ctx_file.append_consensus(
+                    round_number=round_num,
+                    agreed_by=agreed_by,
+                    summary=final_output,
+                )
+
+                task.metadata["session_consensus"] = True
+                task.metadata["session_rounds"] = round_num
+                if has_chunks:
+                    total, done, _ = chunk_mgr.counts()
+                    task.metadata["chunks_total"] = total
+                    task.metadata["chunks_done"] = done
+                return final_output
+
+        # Max rounds exhausted
+        logger.warning(
+            "[Pipeline] Session '%s' max rounds (%d) reached without consensus",
+            session.id,
+            max_rounds,
+        )
+        task.metadata["session_consensus"] = False
+        task.metadata["session_rounds"] = max_rounds
+        if has_chunks:
+            total, done, _ = chunk_mgr.counts()
+            task.metadata["chunks_total"] = total
+            task.metadata["chunks_done"] = done
+        return final_output

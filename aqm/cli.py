@@ -618,7 +618,35 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
             f"  Use [bold]git diff[/] to review changes if conflicts occur.\n"
         )
 
+    _current_session_round: dict[str, int] = {}
+
     def _on_stage(t: Task, stage) -> None:
+        # Detect session turns (task_name starts with "session:")
+        if stage.task_name.startswith("session:"):
+            # Parse round info: "session:<id>:r<N>"
+            parts = stage.task_name.split(":")
+            session_id = parts[1] if len(parts) > 1 else ""
+            round_str = parts[2] if len(parts) > 2 else ""
+            round_num = int(round_str[1:]) if round_str.startswith("r") else 0
+
+            # Print round header on first turn of each round
+            if _current_session_round.get(session_id) != round_num:
+                _current_session_round[session_id] = round_num
+                console.print(f"\n  [bold]── Round {round_num} ──[/]")
+
+            # Check for vote keyword in output
+            vote_mark = ""
+            if "VOTE: AGREE" in stage.output_text.upper():
+                vote_mark = "  [green]✓[/]"
+
+            preview = stage.output_text[:120].replace("\n", " ")
+            if len(stage.output_text) > 120:
+                preview += "..."
+            console.print(
+                f"    [bold cyan][{stage.agent_id}][/] {preview}{vote_mark}"
+            )
+            return
+
         status_color = {
             "completed": "green",
             "approved": "green",
@@ -646,7 +674,14 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
 
     console.print()
     if result.status == TaskStatus.completed:
-        console.print(f"[green]✓ Completed[/] {result.id}")
+        if result.metadata.get("session_consensus") is True:
+            rounds = result.metadata.get("session_rounds", "?")
+            console.print(f"[green]✓ Consensus reached[/] (round {rounds}) {result.id}")
+        elif result.metadata.get("session_consensus") is False:
+            rounds = result.metadata.get("session_rounds", "?")
+            console.print(f"[yellow]⚠ Max rounds reached[/] ({rounds}) {result.id}")
+        else:
+            console.print(f"[green]✓ Completed[/] {result.id}")
     elif result.status == TaskStatus.awaiting_gate:
         console.print(
             f"[yellow]⏸ Awaiting gate[/] {result.id}\n"
@@ -1845,6 +1880,114 @@ def pipeline_edit_cmd(name: str | None) -> None:
         console.print(f"[green]✓[/] Pipeline '{name}' updated.")
     else:
         console.print("[dim]Changes discarded.[/]")
+
+
+# ── chunks ──────────────────────────────────────────────────────────────
+
+
+@cli.group(name="chunks")
+def chunks_group() -> None:
+    """Manage task chunks (work units)."""
+    pass
+
+
+@chunks_group.command(name="list")
+@click.argument("task_id")
+def chunks_list_cmd(task_id: str) -> None:
+    """List chunks for a task.  Example: aqm chunks list T-ABC123"""
+    root = _require_project()
+    from aqm.core.chunks import ChunkManager
+    from aqm.core.project import get_tasks_dir
+
+    tasks_dir = get_tasks_dir(root)
+    task_dir = tasks_dir / task_id
+    if not task_dir.exists():
+        console.print(f"[red]Error:[/] Task directory not found: {task_id}")
+        sys.exit(1)
+
+    mgr = ChunkManager(task_dir)
+    cl = mgr.load()
+
+    if not cl.chunks:
+        console.print(f"[dim]No chunks for {task_id}[/]")
+        return
+
+    table = Table(title=f"Chunks — {task_id}")
+    table.add_column("ID", style="bold")
+    table.add_column("Status")
+    table.add_column("Description")
+    table.add_column("Created By", style="dim")
+
+    status_style = {"pending": "yellow", "in_progress": "cyan", "done": "green"}
+    for c in cl.chunks:
+        table.add_row(
+            c.id,
+            f"[{status_style.get(c.status.value, 'white')}]{c.status.value}[/]",
+            c.description,
+            c.created_by,
+        )
+
+    console.print(table)
+    total, done, pending = mgr.counts()
+    console.print(f"\n  [bold]{done}/{total}[/] done, {pending} remaining")
+
+
+@chunks_group.command(name="add")
+@click.argument("task_id")
+@click.argument("description")
+def chunks_add_cmd(task_id: str, description: str) -> None:
+    """Add a chunk.  Example: aqm chunks add T-ABC123 "Implement login" """
+    root = _require_project()
+    from aqm.core.chunks import ChunkManager
+    from aqm.core.project import get_tasks_dir
+
+    tasks_dir = get_tasks_dir(root)
+    task_dir = tasks_dir / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+
+    mgr = ChunkManager(task_dir)
+    chunk = mgr.add(description, created_by="user")
+    console.print(f"[green]✓[/] Added [bold]{chunk.id}[/]: {description}")
+
+
+@chunks_group.command(name="done")
+@click.argument("task_id")
+@click.argument("chunk_id")
+def chunks_done_cmd(task_id: str, chunk_id: str) -> None:
+    """Mark chunk as done.  Example: aqm chunks done T-ABC123 C-001"""
+    root = _require_project()
+    from aqm.core.chunks import ChunkManager
+    from aqm.core.project import get_tasks_dir
+
+    tasks_dir = get_tasks_dir(root)
+    task_dir = tasks_dir / task_id
+    mgr = ChunkManager(task_dir)
+
+    if mgr.mark_done(chunk_id, completed_by="user"):
+        console.print(f"[green]✓[/] {chunk_id} marked as done")
+    else:
+        console.print(f"[red]Error:[/] Chunk {chunk_id} not found")
+        sys.exit(1)
+
+
+@chunks_group.command(name="remove")
+@click.argument("task_id")
+@click.argument("chunk_id")
+def chunks_remove_cmd(task_id: str, chunk_id: str) -> None:
+    """Remove a chunk.  Example: aqm chunks remove T-ABC123 C-002"""
+    root = _require_project()
+    from aqm.core.chunks import ChunkManager
+    from aqm.core.project import get_tasks_dir
+
+    tasks_dir = get_tasks_dir(root)
+    task_dir = tasks_dir / task_id
+    mgr = ChunkManager(task_dir)
+
+    if mgr.remove(chunk_id):
+        console.print(f"[green]✓[/] {chunk_id} removed")
+    else:
+        console.print(f"[red]Error:[/] Chunk {chunk_id} not found")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

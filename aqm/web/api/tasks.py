@@ -98,12 +98,28 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                 })
 
             def on_stage_complete(t, stage):
-                broadcast_event(t.id, "stage_complete", {
-                    "agent_id": stage.agent_id,
-                    "stage_number": stage.stage_number,
-                    "output_preview": stage.output_text[:200],
-                    "gate_result": stage.gate_result,
-                })
+                # Detect session turns for richer SSE events
+                if stage.task_name.startswith("session:"):
+                    parts = stage.task_name.split(":")
+                    session_id = parts[1] if len(parts) > 1 else ""
+                    round_str = parts[2] if len(parts) > 2 else ""
+                    round_num = int(round_str[1:]) if round_str.startswith("r") else 0
+                    has_vote = "VOTE: AGREE" in stage.output_text.upper()
+                    broadcast_event(t.id, "turn_complete", {
+                        "session_id": session_id,
+                        "agent_id": stage.agent_id,
+                        "round": round_num,
+                        "stage_number": stage.stage_number,
+                        "message_preview": stage.output_text[:300],
+                        "agreed": has_vote,
+                    })
+                else:
+                    broadcast_event(t.id, "stage_complete", {
+                        "agent_id": stage.agent_id,
+                        "stage_number": stage.stage_number,
+                        "output_preview": stage.output_text[:200],
+                        "gate_result": stage.gate_result,
+                    })
 
             def on_output(line):
                 broadcast_event(task.id, "stage_output", {"text": line})
@@ -121,10 +137,15 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                     "agent_id": result.current_agent_id,
                 })
             elif result.status == TaskStatus.completed:
-                broadcast_event(task.id, "task_complete", {
+                event_data = {
                     "status": "completed",
                     "total_stages": len(result.stages),
-                })
+                }
+                # Include session consensus info
+                if "session_consensus" in result.metadata:
+                    event_data["session_consensus"] = result.metadata["session_consensus"]
+                    event_data["session_rounds"] = result.metadata.get("session_rounds")
+                broadcast_event(task.id, "task_complete", event_data)
             elif result.status == TaskStatus.failed:
                 broadcast_event(task.id, "task_failed", {
                     "error": result.metadata.get("error", "Unknown error"),
@@ -413,6 +434,83 @@ def create_tasks_router(project_root: Path) -> APIRouter:
             return {"id": task_id, "status": "cancelled", "message": "Task cancelled"}
         finally:
             queue.close()
+
+    # ── Chunks ─────────────────────────────────────────────────────────
+
+    class AddChunkRequest(BaseModel):
+        description: str
+
+    class UpdateChunkRequest(BaseModel):
+        status: str  # "pending" | "in_progress" | "done"
+
+    @router.get("/api/tasks/{task_id}/chunks")
+    async def api_list_chunks(task_id: str):
+        from aqm.core.chunks import ChunkManager
+        tasks_dir = get_tasks_dir(project_root)
+        task_dir = tasks_dir / task_id
+        mgr = ChunkManager(task_dir)
+        cl = mgr.load()
+        return [c.model_dump(mode="json") for c in cl.chunks]
+
+    @router.post("/api/tasks/{task_id}/chunks")
+    async def api_add_chunk(task_id: str, req: AddChunkRequest):
+        from aqm.core.chunks import ChunkManager
+        tasks_dir = get_tasks_dir(project_root)
+        task_dir = tasks_dir / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        mgr = ChunkManager(task_dir)
+        chunk = mgr.add(req.description, created_by="user")
+        broadcast_event(task_id, "chunk_update", {
+            "action": "add",
+            "chunk_id": chunk.id,
+            "description": req.description,
+        })
+        return chunk.model_dump(mode="json")
+
+    @router.patch("/api/tasks/{task_id}/chunks/{chunk_id}")
+    async def api_update_chunk(task_id: str, chunk_id: str, req: UpdateChunkRequest):
+        from aqm.core.chunks import ChunkManager
+        tasks_dir = get_tasks_dir(project_root)
+        mgr = ChunkManager(tasks_dir / task_id)
+        if req.status == "done":
+            ok = mgr.mark_done(chunk_id, completed_by="user")
+        elif req.status == "in_progress":
+            ok = mgr.mark_in_progress(chunk_id)
+        elif req.status == "pending":
+            cl = mgr.load()
+            ok = False
+            for c in cl.chunks:
+                if c.id == chunk_id:
+                    from aqm.core.chunks import ChunkStatus
+                    c.status = ChunkStatus.pending
+                    from datetime import datetime, timezone
+                    c.updated_at = datetime.now(timezone.utc)
+                    mgr.save(cl)
+                    ok = True
+                    break
+        else:
+            raise HTTPException(400, f"Invalid status: {req.status}")
+        if not ok:
+            raise HTTPException(404, f"Chunk {chunk_id} not found")
+        broadcast_event(task_id, "chunk_update", {
+            "action": "status",
+            "chunk_id": chunk_id,
+            "status": req.status,
+        })
+        return {"chunk_id": chunk_id, "status": req.status}
+
+    @router.delete("/api/tasks/{task_id}/chunks/{chunk_id}")
+    async def api_delete_chunk(task_id: str, chunk_id: str):
+        from aqm.core.chunks import ChunkManager
+        tasks_dir = get_tasks_dir(project_root)
+        mgr = ChunkManager(tasks_dir / task_id)
+        if not mgr.remove(chunk_id):
+            raise HTTPException(404, f"Chunk {chunk_id} not found")
+        broadcast_event(task_id, "chunk_update", {
+            "action": "remove",
+            "chunk_id": chunk_id,
+        })
+        return {"chunk_id": chunk_id, "removed": True}
 
     # ── SSE Events ─────────────────────────────────────────────────────
 

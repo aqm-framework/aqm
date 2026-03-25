@@ -7,16 +7,20 @@ from pathlib import Path
 
 
 class ContextFile:
-    """Manages the context.md file for each task.
+    """Manages the context.md and transcript.md files for each task.
 
     Each time an agent runs, its result is appended to context.md,
     and the next agent reads this file to understand the overall flow.
     Humans can also open and review this file directly.
+
+    For conversational sessions, transcript.md holds the meeting minutes
+    and is injected into agent prompts via the ``{{ transcript }}`` variable.
     """
 
     def __init__(self, task_dir: Path) -> None:
         self.task_dir = Path(task_dir)
         self.context_path = self.task_dir / "context.md"
+        self.transcript_path = self.task_dir / "transcript.md"
 
     def ensure_dir(self) -> None:
         self.task_dir.mkdir(parents=True, exist_ok=True)
@@ -73,3 +77,63 @@ class ContextFile:
         sections = content.split("---")
         sections = [s.strip() for s in sections if s.strip()]
         return "\n\n---\n\n".join(sections[-n:])
+
+    # ── Transcript (conversational sessions) ──────────────────────────
+
+    def init_transcript(
+        self,
+        *,
+        topic: str,
+        participants: list[str],
+    ) -> None:
+        """Write the transcript header."""
+        self.ensure_dir()
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        header = (
+            f"# Meeting Transcript\n"
+            f"**Topic**: {topic}\n"
+            f"**Participants**: {', '.join(participants)}\n"
+            f"**Started**: {now}\n\n---\n\n"
+        )
+        self.transcript_path.write_text(header, encoding="utf-8")
+
+    def append_turn(
+        self,
+        *,
+        round_number: int,
+        agent_id: str,
+        message: str,
+        is_round_start: bool = False,
+    ) -> None:
+        """Append a single turn to the transcript."""
+        self.ensure_dir()
+        now = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        parts: list[str] = []
+        if is_round_start:
+            parts.append(f"## Round {round_number}\n\n")
+        parts.append(f"### [{agent_id}] ({now})\n{message}\n\n")
+        with open(self.transcript_path, "a", encoding="utf-8") as f:
+            f.write("".join(parts))
+
+    def append_consensus(
+        self,
+        *,
+        round_number: int,
+        agreed_by: list[str],
+        summary: str,
+    ) -> None:
+        """Append the consensus section to the transcript."""
+        section = (
+            f"---\n\n"
+            f"## Consensus Reached (Round {round_number})\n"
+            f"**Agreed by**: {', '.join(agreed_by)}\n\n"
+            f"### Final Summary\n{summary}\n"
+        )
+        with open(self.transcript_path, "a", encoding="utf-8") as f:
+            f.write(section)
+
+    def read_transcript(self) -> str:
+        """Return the full transcript contents."""
+        if not self.transcript_path.exists():
+            return ""
+        return self.transcript_path.read_text(encoding="utf-8")

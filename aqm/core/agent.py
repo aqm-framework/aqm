@@ -91,12 +91,41 @@ class ImportSpec(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class ConsensusConfig(BaseModel):
+    """Consensus detection settings for session nodes."""
+
+    method: Literal["vote", "moderator_decides"] = "vote"
+    keyword: str = "VOTE: AGREE"
+    require: Literal["all", "majority"] = "all"
+    require_chunks_done: bool = False
+
+
+class ChunksConfig(BaseModel):
+    """Chunk decomposition settings for session nodes.
+
+    When enabled, the session tracks work units (chunks) that agents
+    can add, complete, or remove via output directives.  If
+    ``consensus.require_chunks_done`` is also set, consensus is only
+    reached when all chunks are marked done.
+    """
+
+    enabled: bool = True
+    initial: list[str] = Field(default_factory=list)
+
+
 class AgentDefinition(BaseModel):
-    """Complete definition of a single agent."""
+    """Complete definition of a single agent or session node.
+
+    When ``type`` is ``"agent"`` (default), this is a regular agent that
+    requires a ``runtime``.  When ``type`` is ``"session"``, this is a
+    conversational group node: multiple agents discuss in rounds until
+    consensus is reached, then the result flows to the next handoff target.
+    """
 
     id: str
     name: str = ""
-    runtime: Literal["claude", "gemini", "codex"]
+    type: Literal["agent", "session"] = "agent"
+    runtime: Optional[Literal["claude", "gemini", "codex"]] = None
     model: Optional[str] = None
     system_prompt: str = ""
     handoffs: list[Handoff] = Field(default_factory=list)
@@ -105,6 +134,14 @@ class AgentDefinition(BaseModel):
     claude_code_flags: Optional[list[str]] = None
     abstract: bool = False
     extends: Optional[str] = None
+
+    # Session-specific fields (only used when type == "session")
+    participants: list[str] = Field(default_factory=list)
+    turn_order: Literal["round_robin", "moderator"] = "round_robin"
+    max_rounds: int = 10
+    consensus: Optional[ConsensusConfig] = None
+    summary_agent: Optional[str] = None
+    chunks: Optional[ChunksConfig] = None
 
     @field_validator("mcp", mode="before")
     @classmethod
@@ -420,9 +457,40 @@ def load_agents(
             raise ValueError(f"Duplicate agent ID: {agent.id}")
         agents[agent.id] = agent
 
-    # --- Step 8: Validate handoff targets ---
+    # --- Step 8: Validate handoff targets and session nodes ---
     all_ids = set(agents.keys())
     for agent in agents.values():
+        # Validate runtime is set for regular agents
+        if agent.type == "agent" and agent.runtime is None:
+            raise ValueError(
+                f"Agent '{agent.id}' requires a 'runtime' field "
+                f"(claude, gemini, or codex)."
+            )
+
+        # Validate session-specific fields
+        if agent.type == "session":
+            if not agent.participants:
+                raise ValueError(
+                    f"Session '{agent.id}' must have at least one participant."
+                )
+            for pid in agent.participants:
+                if pid not in all_ids:
+                    raise ValueError(
+                        f"Session '{agent.id}' participant '{pid}' "
+                        f"does not exist."
+                    )
+                participant = agents[pid]
+                if participant.type == "session":
+                    raise ValueError(
+                        f"Session '{agent.id}' participant '{pid}' "
+                        f"cannot be another session."
+                    )
+            if agent.summary_agent and agent.summary_agent not in all_ids:
+                raise ValueError(
+                    f"Session '{agent.id}' summary_agent "
+                    f"'{agent.summary_agent}' does not exist."
+                )
+
         for handoff in agent.handoffs:
             if handoff.condition == "auto":
                 continue
