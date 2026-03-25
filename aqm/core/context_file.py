@@ -188,3 +188,32 @@ class ContextFile:
         if not self.transcript_path.exists():
             return ""
         return self.transcript_path.read_text(encoding="utf-8")
+
+    # ── Human input recording ─────────────────────────────────────
+
+    def append_human_input(
+        self,
+        *,
+        agent_id: str,
+        question: str,
+        response: str,
+    ) -> None:
+        """Record a human input exchange in both shared and agent context."""
+        self.ensure_dir()
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+        section = (
+            f"## [human input] for {agent_id}\n"
+            f"**Time**: {now}\n\n"
+            f"### Question\n{question}\n\n"
+            f"### User Response\n{response}\n\n---\n\n"
+        )
+
+        # Append to shared context
+        with open(self.context_path, "a", encoding="utf-8") as f:
+            f.write(section)
+
+        # Append to agent's private context
+        path = self.agent_context_path(agent_id)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(section)

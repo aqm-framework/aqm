@@ -5,10 +5,10 @@ An orchestration framework where multiple AI agents pass tasks through **explici
 Build pipelines in YAML. Share them with anyone. Run them locally.
 
 ```
-      [planner] ──► [reviewer] ──approve──► [design_session] ──► [implementer]
-          ▲              │                    ┌──┬──┬──┐
-          └──── reject ──┘                    ▼  ▼  ▼  ▼  round-robin
-                                           [arch][sec][fe]  until consensus
+  [user] ──input──► [planner] ──► [reviewer] ──approve──► [design_session] ──► [implementer]
+                        ▲              │                    ┌──┬──┬──┐
+                        └── reject ────┘                    ▼  ▼  ▼  ▼  round-robin
+                        └── ask user ──►[user]             [arch][sec][fe]  until consensus
 ```
 
 ## Install
@@ -198,6 +198,53 @@ handoffs:
 
 **Payload variables:** `{{ output }}`, `{{ input }}`, `{{ reject_reason }}`, `{{ gate_result }}`
 
+### Human Input (Human-in-the-Loop)
+
+Agents can request input from humans during pipeline execution — for clarifying requirements, gathering feedback, or making decisions that need human judgment.
+
+```yaml
+agents:
+  - id: planner
+    runtime: claude
+    human_input:
+      enabled: true
+      mode: before           # Ask before agent runs
+      prompt: "What specific features do you want? Any design preferences?"
+    system_prompt: |
+      Plan the project based on the user's requirements.
+      {{ input }}
+
+  - id: developer
+    runtime: claude
+    human_input: true        # Shorthand for on_demand mode
+    system_prompt: |
+      Implement the plan. If you need clarification, use:
+      HUMAN_INPUT: <your question here>
+      {{ input }}
+```
+
+**Modes:**
+
+| Mode | Behavior |
+|---|---|
+| `before` | Always pause and ask the user before the agent runs. Good for requirements gathering. |
+| `on_demand` | Agent requests input via `HUMAN_INPUT: <question>` directives in output. Good for mid-execution clarification. |
+| `both` | Combines both modes. |
+
+**Shorthand formats:**
+```yaml
+human_input: true              # Same as { enabled: true, mode: on_demand }
+human_input: "before"          # Same as { enabled: true, mode: before }
+human_input:
+  enabled: true
+  mode: before
+  prompt: "Custom question"    # Shown to user in 'before' mode
+```
+
+Human responses are recorded in both `context.md` (shared) and `agent_{id}.md` (private), so all agents can see what the user said.
+
+**Web dashboard** shows a cyan input panel when an agent needs input. **CLI:** responses via `aqm human-input <task_id> "response"`.
+
 ### Gates (Quality Control)
 
 ```yaml
@@ -332,6 +379,7 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `model` | `string` | CLI default | Model override |
 | `system_prompt` | `string` | `""` | Jinja2 template: `{{ input }}`, `{{ context }}`, `{{ transcript }}`, `{{ chunks }}` |
 | `context_strategy` | `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
+| `human_input` | `boolean` \| `object` | `null` | Human-in-the-loop input (`before`, `on_demand`, `both`) |
 | `handoffs` | `list` | `[]` | Routing rules |
 | `gate` | `object` | `null` | Quality gate (`llm` or `human`) |
 | `mcp` | `list` | `[]` | MCP server connections |
@@ -392,6 +440,7 @@ aqm/
 | Task decomposition | ❌ | ❌ | ❌ | **Chunk tracking** |
 | Context optimization | ❌ | ❌ | ❌ | **Per-agent context strategy** |
 | Multi-LLM | Manual | Limited | ❌ | **Claude + Gemini + Codex** |
+| Human-in-the-loop | ❌ | ❌ | ❌ | **`human_input` per agent** |
 | Approve/Reject gate | Interrupt | ❌ | ❌ | **First-class** |
 | Auto entry routing | ❌ | ❌ | ❌ | **LLM-based `entry_point: auto`** |
 | Fan-out parallel | Manual | ❌ | ❌ | **Declarative** |

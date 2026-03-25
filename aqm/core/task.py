@@ -15,6 +15,7 @@ class TaskStatus(str, Enum):
     pending = "pending"
     in_progress = "in_progress"
     awaiting_gate = "awaiting_gate"
+    awaiting_human_input = "awaiting_human_input"
     approved = "approved"
     rejected = "rejected"
     completed = "completed"
