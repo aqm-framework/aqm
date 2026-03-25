@@ -376,6 +376,7 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `id` | `string` | — | Unique identifier (required) |
+| `name` | `string` | `""` | Display name (auto-generated from id if empty) |
 | `type` | `"agent"` \| `"session"` | `"agent"` | Node type |
 | `runtime` | `"claude"` \| `"gemini"` \| `"codex"` | — | Required for `type: agent` |
 | `model` | `string` | CLI default | Model override |
@@ -383,12 +384,46 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `context_strategy` | `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
 | `context_window` | `int` | `3` | Recent stages in full; older stages summarized (0 = all) |
 | `human_input` | `boolean` \| `object` | `null` | Human-in-the-loop input (`before`, `on_demand`, `both`) |
-| `handoffs` | `list` | `[]` | Routing rules |
-| `gate` | `object` | `null` | Quality gate (`llm` or `human`) |
-| `mcp` | `list` | `[]` | MCP server connections |
+| `handoffs` | `list[Handoff]` | `[]` | Routing rules (see below) |
+| `gate` | `object` | `null` | Quality gate (see below) |
+| `mcp` | `list[MCPServer]` | `[]` | MCP server connections (see below) |
 | `claude_code_flags` | `list[string]` | `null` | Extra CLI flags for Claude |
-| `abstract` | `boolean` | `false` | Template-only agent |
-| `extends` | `string` | `null` | Parent agent ID |
+| `abstract` | `boolean` | `false` | Template-only agent (not executed) |
+| `extends` | `string` | `null` | Parent agent ID for inheritance |
+
+### Handoff Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `to` | `string` | — | Target agent ID, or comma-separated for fan-out (`"qa, docs"`) |
+| `task` | `string` | `""` | Task name label |
+| `condition` | `string` | `"always"` | `always`, `on_approve`, `on_reject`, `on_pass`, `auto`, or expression |
+| `payload` | `string` | `"{{ output }}"` | Jinja2 template: `{{ output }}`, `{{ input }}`, `{{ reject_reason }}`, `{{ gate_result }}` |
+
+### Gate Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `type` | `"llm"` \| `"human"` | `"llm"` | LLM auto-evaluates or human manually approves |
+| `prompt` | `string` | `""` | Custom evaluation prompt (Jinja2: `{{ output }}`, `{{ input }}`) |
+| `model` | `string` | config default | Model override for LLM gate evaluation |
+
+### MCP Server Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `server` | `string` | — | Server name (e.g., `"github"`, `"filesystem"`) |
+| `command` | `string` | `"npx"` | Custom command (default: `npx -y @modelcontextprotocol/server-{name}`) |
+| `args` | `list[string]` | `[]` | Command arguments |
+| `env` | `object` | `null` | Environment variables |
+
+### Human Input Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `true` | Enable/disable human input |
+| `mode` | `"before"` \| `"on_demand"` \| `"both"` | `"on_demand"` | When to request input |
+| `prompt` | `string` | `""` | Custom question shown to user (for `before` mode) |
 
 ### Session Fields (type: session)
 
@@ -404,6 +439,49 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `summary_agent` | `string` | `null` | Final summary producer |
 | `chunks.enabled` | `boolean` | `true` | Enable chunk tracking |
 | `chunks.initial` | `list[string]` | `[]` | Seed chunks |
+
+### config.yaml Reference
+
+Project-level configuration at `.aqm/config.yaml`. All fields are optional — defaults match built-in values.
+
+```yaml
+# .aqm/config.yaml
+pipeline:
+  max_stages: 20              # Maximum pipeline stages before failure
+
+gate:
+  model: claude-sonnet-4-20250514   # Default model for LLM gate evaluation
+  timeout: 120                # Gate evaluation timeout (seconds)
+  system_prompt: |            # Custom gate evaluation prompt
+    You are a quality gate evaluator...
+
+timeouts:                     # Runtime subprocess timeouts (seconds)
+  text: 300
+  claude_code: 600
+  gemini: 300
+  codex: 600
+
+server:
+  host: 127.0.0.1
+  port: 8000
+
+context:
+  preview_max_chars: 120      # Summary preview length for smart windowing
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `pipeline.max_stages` | `int` | `20` | Maximum pipeline stages before auto-failure |
+| `gate.model` | `string` | `"claude-sonnet-4-20250514"` | Default model for LLM gate evaluation |
+| `gate.timeout` | `int` | `120` | Gate subprocess timeout (seconds) |
+| `gate.system_prompt` | `string` | built-in | Custom gate system prompt |
+| `timeouts.text` | `int` | `300` | Claude text-only runtime timeout |
+| `timeouts.claude_code` | `int` | `600` | Claude Code runtime timeout |
+| `timeouts.gemini` | `int` | `300` | Gemini CLI runtime timeout |
+| `timeouts.codex` | `int` | `600` | Codex CLI runtime timeout |
+| `server.host` | `string` | `"127.0.0.1"` | Web dashboard host |
+| `server.port` | `int` | `8000` | Web dashboard port |
+| `context.preview_max_chars` | `int` | `120` | Smart context summary preview length |
 
 ## Architecture
 
