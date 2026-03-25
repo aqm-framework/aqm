@@ -12,6 +12,12 @@
       "const": "aqm/v0.1",
       "description": "API version identifier. Currently must be \"aqm/v0.1\"."
     },
+    "entry_point": {
+      "type": "string",
+      "enum": ["first", "auto"],
+      "default": "first",
+      "description": "How to select the starting agent. 'first': always use the first agent in the list (default). 'auto': LLM analyzes the user input and picks the best starting agent."
+    },
     "params": {
       "type": "object",
       "description": "Parameter declarations for pipeline parameterization. Values are referenced via ${{ params.<name> }} syntax. Supports shorthand (just a default value) or full ParamDefinition objects.",
