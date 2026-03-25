@@ -42,7 +42,7 @@ def sample_agents_yaml(tmp_project: Path) -> Path:
             {
                 "id": "agent_a",
                 "name": "Agent A",
-                "runtime": "text",
+                "runtime": "claude",
                 "system_prompt": "Process: {{ input }}",
                 "handoffs": [
                     {
@@ -56,7 +56,7 @@ def sample_agents_yaml(tmp_project: Path) -> Path:
             {
                 "id": "agent_b",
                 "name": "Agent B",
-                "runtime": "text",
+                "runtime": "claude",
                 "system_prompt": "Handle: {{ input }}",
                 "gate": {"type": "llm", "prompt": "Is this good?"},
                 "handoffs": [
@@ -76,7 +76,7 @@ def sample_agents_yaml(tmp_project: Path) -> Path:
             {
                 "id": "agent_c",
                 "name": "Agent C",
-                "runtime": "claude_code",
+                "runtime": "claude",
                 "system_prompt": "Execute: {{ input }}",
                 "mcp": [{"server": "filesystem"}],
             },

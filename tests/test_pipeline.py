@@ -52,7 +52,7 @@ class TestAgentYAML:
     def test_agent_fields(self, sample_agents):
         a = sample_agents["agent_a"]
         assert a.name == "Agent A"
-        assert a.runtime == "text"
+        assert a.runtime == "claude"
         assert len(a.handoffs) == 1
         assert a.handoffs[0].to == "agent_b"
 
@@ -72,7 +72,7 @@ class TestAgentYAML:
                 {
                     "id": "a",
                     "name": "A",
-                    "runtime": "text",
+                    "runtime": "claude",
                     "handoffs": [{"to": "nonexistent", "condition": "always"}],
                 }
             ]
@@ -86,8 +86,8 @@ class TestAgentYAML:
     def test_duplicate_agent_id(self, tmp_project):
         yaml_content = {
             "agents": [
-                {"id": "dup", "name": "A", "runtime": "text"},
-                {"id": "dup", "name": "B", "runtime": "text"},
+                {"id": "dup", "name": "A", "runtime": "claude"},
+                {"id": "dup", "name": "B", "runtime": "claude"},
             ]
         }
         yaml_path = tmp_project / ".aqm" / "agents.yaml"
@@ -103,7 +103,7 @@ class TestAgentYAML:
                 {
                     "id": "test",
                     "name": "Test",
-                    "runtime": "text",
+                    "runtime": "claude",
                     "mcp": [
                         {"server": "github"},
                         {"server": "filesystem", "args": ["/tmp"]},
@@ -481,13 +481,13 @@ class TestHandoffRouting:
                 {
                     "id": "router",
                     "name": "Router",
-                    "runtime": "text",
+                    "runtime": "claude",
                     "handoffs": [
                         {"to": "a, b", "condition": "always"},
                     ],
                 },
-                {"id": "a", "name": "A", "runtime": "text"},
-                {"id": "b", "name": "B", "runtime": "text"},
+                {"id": "a", "name": "A", "runtime": "claude"},
+                {"id": "b", "name": "B", "runtime": "claude"},
             ]
         }
         yaml_path = tmp_project / ".aqm" / "agents.yaml"
