@@ -156,7 +156,8 @@ class ChunkManager:
             status_mark = {"pending": "⬜", "in_progress": "🔄", "done": "✅"}.get(
                 c.status.value, c.status.value
             )
-            lines.append(f"| {c.id} | {status_mark} {c.status.value} | {c.description} |")
+            safe_desc = c.description.replace("|", "\\|")
+            lines.append(f"| {c.id} | {status_mark} {c.status.value} | {safe_desc} |")
         total, done, pending = self.counts()
         lines.append(f"\n**Progress: {done}/{total} done, {pending} remaining**")
         return "\n".join(lines)
@@ -218,6 +219,11 @@ def parse_chunk_directives(
                 "chunk_id": cid,
                 "agent_id": agent_id,
             })
+        else:
+            logger.warning(
+                "[ChunkDirective] CHUNK_DONE: %s not found (agent=%s)",
+                cid, agent_id,
+            )
 
     for m in _CHUNK_REMOVE_RE.finditer(message):
         cid = m.group(1).strip()
@@ -227,5 +233,10 @@ def parse_chunk_directives(
                 "chunk_id": cid,
                 "agent_id": agent_id,
             })
+        else:
+            logger.warning(
+                "[ChunkDirective] CHUNK_REMOVE: %s not found (agent=%s)",
+                cid, agent_id,
+            )
 
     return actions
