@@ -42,7 +42,7 @@ Mix providers per agent. All use CLI subprocesses — no API keys or SDK setup n
 | `gemini` | Google | `npm i -g @google/gemini-cli` |
 | `codex` | OpenAI | `npm i -g @openai/codex` |
 
-Claude auto-selects **Code mode** (with MCP/tools) vs **text-only mode** based on agent config.
+Claude always runs in **Code mode** — MCP servers and tools are available when configured.
 
 ```yaml
 agents:
@@ -456,8 +456,7 @@ gate:
     You are a quality gate evaluator...
 
 timeouts:                     # Runtime subprocess timeouts (seconds)
-  text: 300
-  claude_code: 600
+  claude: 600
   gemini: 300
   codex: 600
 
@@ -475,8 +474,7 @@ context:
 | `gate.model` | `string` | `"claude-sonnet-4-20250514"` | Default model for LLM gate evaluation |
 | `gate.timeout` | `int` | `120` | Gate subprocess timeout (seconds) |
 | `gate.system_prompt` | `string` | built-in | Custom gate system prompt |
-| `timeouts.text` | `int` | `300` | Claude text-only runtime timeout |
-| `timeouts.claude_code` | `int` | `600` | Claude Code runtime timeout |
+| `timeouts.claude` | `int` | `600` | Claude runtime timeout |
 | `timeouts.gemini` | `int` | `300` | Gemini CLI runtime timeout |
 | `timeouts.codex` | `int` | `600` | Codex CLI runtime timeout |
 | `server.host` | `string` | `"127.0.0.1"` | Web dashboard host |
@@ -500,7 +498,7 @@ aqm/
 │   ├── sqlite.py         # SQLiteQueue (production)
 │   └── file.py           # FileQueue (testing)
 ├── runtime/
-│   ├── text.py           # Claude text-only
+│   ├── text.py           # Claude text-only (legacy)
 │   ├── claude_code.py    # Claude Code (with MCP)
 │   ├── gemini.py         # Gemini CLI
 │   └── codex.py          # Codex CLI
