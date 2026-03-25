@@ -649,7 +649,7 @@ class Pipeline:
     def _parse_human_input_requests(agent_output: str) -> list[str]:
         """Extract ``HUMAN_INPUT: <question>`` directives from agent output."""
         questions: list[str] = []
-        for m in re.finditer(r"HUMAN_INPUT:\s*(.+)", agent_output, re.IGNORECASE):
+        for m in re.finditer(r"HUMAN_INPUT:[ \t]*([^\n]+)", agent_output, re.IGNORECASE):
             q = m.group(1).strip()
             if q:
                 questions.append(q)

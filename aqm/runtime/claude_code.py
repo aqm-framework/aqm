@@ -224,72 +224,36 @@ class ClaudeCodeRuntime(AbstractRuntime):
         on_output: OutputCallback,
         on_thinking: ThinkingCallback = None,
     ) -> str:
-        """Run with streaming via Popen.
+        """Run with true token-level streaming via ``--include-partial-messages``.
 
-        When *on_thinking* is provided, uses ``--output-format stream-json``
-        to separate thinking blocks from assistant text.  Falls back to
-        plain line-by-line streaming otherwise.
+        Always uses ``--output-format stream-json --include-partial-messages``
+        for real-time token streaming.  Thinking blocks are forwarded to
+        *on_thinking* when provided.
         """
-        if on_thinking:
-            # Use stream-json to separate thinking from output
-            # --print + --output-format=stream-json requires --verbose
-            stream_cmd = list(cmd)
-            if "--verbose" not in stream_cmd:
-                stream_cmd.append("--verbose")
-            stream_cmd.extend(["--output-format", "stream-json"])
-            return self._run_stream_json(stream_cmd, agent, on_output, on_thinking)
-
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=str(self.project_root),
-        )
-
-        lines: list[str] = []
-        try:
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    break
-                lines.append(line)
-                try:
-                    on_output(line.rstrip("\n"))
-                except Exception:
-                    pass
-
-            proc.wait(timeout=600)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            raise RuntimeError(
-                f"Claude Code timed out (agent={agent.id})"
-            )
-
-        if proc.returncode != 0:
-            error_msg = (
-                proc.stderr.read().strip() if proc.stderr
-                else f"Exit code: {proc.returncode}"
-            )
-            logger.error(
-                "[ClaudeCodeRuntime] Agent '%s' failed: %s",
-                agent.id,
-                error_msg,
-            )
-            raise RuntimeError(
-                f"Claude Code execution failed (agent={agent.id}): {error_msg}"
-            )
-
-        return "".join(lines).strip()
+        stream_cmd = list(cmd)
+        if "--verbose" not in stream_cmd:
+            stream_cmd.append("--verbose")
+        stream_cmd.extend([
+            "--output-format", "stream-json",
+            "--include-partial-messages",
+        ])
+        return self._run_stream_json(stream_cmd, agent, on_output, on_thinking)
 
     def _run_stream_json(
         self,
         cmd: list[str],
         agent: AgentDefinition,
         on_output: OutputCallback,
-        on_thinking: ThinkingCallback,
+        on_thinking: ThinkingCallback = None,
     ) -> str:
-        """Run with ``--output-format stream-json`` to get thinking + text."""
+        """Run with ``--output-format stream-json`` for real-time streaming.
+
+        Handles two event formats:
+        - **stream_event** (with ``--include-partial-messages``):
+          Token-level deltas via ``content_block_delta``.
+        - **assistant** (without partial messages):
+          Full message with complete content blocks.
+        """
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -310,7 +274,6 @@ class ClaudeCodeRuntime(AbstractRuntime):
                 try:
                     event = json.loads(line)
                 except json.JSONDecodeError:
-                    # Non-JSON line — treat as output
                     output_parts.append(line)
                     try:
                         on_output(line)
@@ -320,19 +283,37 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
                 etype = event.get("type", "")
 
-                # Claude Code stream-json format:
-                #   {"type":"assistant","message":{"content":[
-                #     {"type":"thinking","thinking":"..."},
-                #     {"type":"text","text":"..."}
-                #   ]}}
-                #   {"type":"result","result":"...","subtype":"success"}
-                if etype == "assistant":
+                # Token-level streaming via --include-partial-messages
+                if etype == "stream_event":
+                    inner = event.get("event", {})
+                    inner_type = inner.get("type", "")
+                    if inner_type == "content_block_delta":
+                        delta = inner.get("delta", {})
+                        delta_type = delta.get("type", "")
+                        if delta_type == "thinking_delta":
+                            thinking_text = delta.get("thinking", "")
+                            if thinking_text and on_thinking:
+                                try:
+                                    on_thinking(thinking_text)
+                                except Exception:
+                                    pass
+                        elif delta_type == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                output_parts.append(text)
+                                try:
+                                    on_output(text)
+                                except Exception:
+                                    pass
+
+                # Full message fallback (no --include-partial-messages)
+                elif etype == "assistant":
                     msg = event.get("message", {})
                     for block in msg.get("content", []):
                         btype = block.get("type", "")
                         if btype == "thinking":
                             thinking_text = block.get("thinking", "")
-                            if thinking_text:
+                            if thinking_text and on_thinking:
                                 try:
                                     on_thinking(thinking_text)
                                 except Exception:
@@ -345,6 +326,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                     on_output(text)
                                 except Exception:
                                     pass
+
                 elif etype == "result":
                     result_text = event.get("result", "")
                     if result_text and not output_parts:
