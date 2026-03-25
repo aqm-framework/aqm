@@ -181,7 +181,7 @@ class TestSessionErrorRecovery:
             "Agent A round 2. VOTE: AGREE",
             "Agent B recovered. VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Crash test")
         queue.push(task, "session")
@@ -226,7 +226,7 @@ class TestSessionErrorRecovery:
         mock_rt = MagicMock()
         mock_rt.name = "mock"
         mock_rt.run.side_effect = mock_run
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Cancel test")
         queue.push(task, "session")
@@ -289,7 +289,7 @@ class TestIntegrationPipeline:
             "CHUNK_DONE: C-002\nVOTE: AGREE",                # sec in session
             "Implementation complete.",                        # implementer
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Build API")
         queue.push(task, "planner")
@@ -336,7 +336,7 @@ class TestIntegrationPipeline:
             "Shared agent round 2. VOTE: AGREE",
             "Own agent round 2. VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Mixed strategy")
         queue.push(task, "session")

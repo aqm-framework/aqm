@@ -41,8 +41,7 @@ class GateDefaults(BaseModel):
 
 
 class RuntimeTimeouts(BaseModel):
-    text: int = 300
-    claude_code: int = 600
+    claude: int = 600
     gemini: int = 300
     codex: int = 600
 

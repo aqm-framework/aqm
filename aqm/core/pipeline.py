@@ -28,7 +28,6 @@ from aqm.core.project import get_tasks_dir
 from aqm.core.task import StageRecord, Task, TaskStatus
 from aqm.queue.base import AbstractQueue
 from aqm.runtime.base import AbstractRuntime
-from aqm.runtime.text import TextRuntime
 from aqm.runtime.claude_code import ClaudeCodeRuntime
 from aqm.runtime.gemini import GeminiCLIRuntime
 from aqm.runtime.codex import CodexCLIRuntime
@@ -90,17 +89,11 @@ class Pipeline:
         """
         rt = agent.runtime
 
-        # Claude auto-detect: use Claude Code mode if MCP or flags are set
         t = self.config.timeouts
         if rt == "claude":
-            needs_tools = bool(agent.mcp) or bool(agent.claude_code_flags)
-            cache_key = "claude_code" if needs_tools else "claude_text"
-            if cache_key not in self._runtimes:
-                if needs_tools:
-                    self._runtimes[cache_key] = ClaudeCodeRuntime(self.project_root, timeout=t.claude_code)
-                else:
-                    self._runtimes[cache_key] = TextRuntime(self.project_root, timeout=t.text)
-            return self._runtimes[cache_key]
+            if "claude" not in self._runtimes:
+                self._runtimes["claude"] = ClaudeCodeRuntime(self.project_root, timeout=t.claude)
+            return self._runtimes["claude"]
 
         if rt not in self._runtimes:
             if rt == "gemini":

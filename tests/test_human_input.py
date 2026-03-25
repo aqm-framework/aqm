@@ -217,7 +217,7 @@ class TestPipelineBeforeMode:
         mock_rt = MagicMock()
         mock_rt.name = "mock"
         mock_rt.run.return_value = "Agent output"
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         return pipeline, agents, queue, mock_rt
 
@@ -310,7 +310,7 @@ class TestPipelineOnDemandMode:
 
         mock_rt = MagicMock()
         mock_rt.name = "mock"
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         return pipeline, agents, queue, mock_rt
 
@@ -414,7 +414,7 @@ class TestHumanInputCallback:
 
         mock_rt = MagicMock()
         mock_rt.name = "mock"
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         callback = MagicMock()
 

@@ -219,7 +219,7 @@ class TestPipelineContextStrategy:
             "first agent shared output",  # first agent
             "second agent output",         # second agent
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Test strategy")
         queue.push(task, "first")
@@ -253,7 +253,7 @@ class TestPipelineContextStrategy:
             "first agent output",
             "second agent output",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Test both")
         queue.push(task, "first")
@@ -292,7 +292,7 @@ class TestPipelineContextStrategy:
             "Agent A round 1 thoughts. VOTE: AGREE",
             "Agent B round 1 analysis. VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Session test")
         queue.push(task, "session")
@@ -334,7 +334,7 @@ class TestPipelineContextStrategy:
         mock_rt = MagicMock()
         mock_rt.name = "mock"
         mock_rt.run.side_effect = ["first output", "second output"]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Backward compat")
         queue.push(task, "first")

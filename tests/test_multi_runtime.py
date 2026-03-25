@@ -422,52 +422,29 @@ class TestPipelineRuntimeResolution:
         runtime = pipeline._get_runtime(agents["test"])
         assert isinstance(runtime, CodexCLIRuntime)
 
-    def test_claude_auto_text_mode(self, tmp_project):
-        """Claude without MCP/flags should use text-only mode."""
-        from aqm.runtime.text import TextRuntime
-
-        agents = {
-            "test": AgentDefinition(
-                id="test", runtime="claude", system_prompt="{{ input }}",
-            )
-        }
-        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
-        pipeline = Pipeline(agents, queue, tmp_project)
-
-        runtime = pipeline._get_runtime(agents["test"])
-        assert isinstance(runtime, TextRuntime)
-
-    def test_claude_auto_code_mode(self, tmp_project):
-        """Claude with MCP should auto-select Code mode."""
+    def test_claude_always_uses_claude_code(self, tmp_project):
+        """Claude runtime always uses ClaudeCodeRuntime."""
         from aqm.runtime.claude_code import ClaudeCodeRuntime
 
         agents = {
-            "test": AgentDefinition(
-                id="test", runtime="claude", system_prompt="{{ input }}",
+            "plain": AgentDefinition(
+                id="plain", runtime="claude", system_prompt="{{ input }}",
+            ),
+            "with_mcp": AgentDefinition(
+                id="with_mcp", runtime="claude", system_prompt="{{ input }}",
                 mcp=[{"server": "github"}],
-            )
-        }
-        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
-        pipeline = Pipeline(agents, queue, tmp_project)
-
-        runtime = pipeline._get_runtime(agents["test"])
-        assert isinstance(runtime, ClaudeCodeRuntime)
-
-    def test_claude_auto_code_mode_with_flags(self, tmp_project):
-        """Claude with claude_code_flags should auto-select Code mode."""
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
-
-        agents = {
-            "test": AgentDefinition(
-                id="test", runtime="claude", system_prompt="{{ input }}",
+            ),
+            "with_flags": AgentDefinition(
+                id="with_flags", runtime="claude", system_prompt="{{ input }}",
                 claude_code_flags=["--allowedTools", "Edit,Read"],
-            )
+            ),
         }
         queue = FileQueue(tmp_project / ".aqm" / "file-queue")
         pipeline = Pipeline(agents, queue, tmp_project)
 
-        runtime = pipeline._get_runtime(agents["test"])
-        assert isinstance(runtime, ClaudeCodeRuntime)
+        for agent in agents.values():
+            runtime = pipeline._get_runtime(agent)
+            assert isinstance(runtime, ClaudeCodeRuntime)
 
     def test_runtime_caching(self, tmp_project):
         agents = {
@@ -516,44 +493,21 @@ class TestPipelineRuntimeResolution:
         assert result.status == TaskStatus.completed
         assert result.stages[0].output_text == "Plan completed."
 
-    def test_claude_cache_key_isolation(self, tmp_project):
-        """claude_text and claude_code should be cached separately."""
-        from aqm.runtime.text import TextRuntime
+    def test_claude_runtime_cached_single_instance(self, tmp_project):
+        """All claude agents share the same ClaudeCodeRuntime instance."""
         from aqm.runtime.claude_code import ClaudeCodeRuntime
 
         agents = {
-            "text_agent": AgentDefinition(
-                id="text_agent", runtime="claude", system_prompt="{{ input }}",
-            ),
-            "code_agent": AgentDefinition(
-                id="code_agent", runtime="claude", system_prompt="{{ input }}",
-                mcp=[{"server": "github"}],
-            ),
+            "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }}"),
+            "b": AgentDefinition(id="b", runtime="claude", system_prompt="{{ input }}", mcp=[{"server": "github"}]),
         }
         queue = FileQueue(tmp_project / ".aqm" / "file-queue")
         pipeline = Pipeline(agents, queue, tmp_project)
 
-        rt_text = pipeline._get_runtime(agents["text_agent"])
-        rt_code = pipeline._get_runtime(agents["code_agent"])
-        assert isinstance(rt_text, TextRuntime)
-        assert isinstance(rt_code, ClaudeCodeRuntime)
-        assert rt_text is not rt_code
-
-    def test_claude_empty_mcp_list_uses_text(self, tmp_project):
-        """Empty mcp=[] should still use text mode (falsy)."""
-        from aqm.runtime.text import TextRuntime
-
-        agents = {
-            "test": AgentDefinition(
-                id="test", runtime="claude", system_prompt="{{ input }}",
-                mcp=[],
-            ),
-        }
-        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
-        pipeline = Pipeline(agents, queue, tmp_project)
-
-        runtime = pipeline._get_runtime(agents["test"])
-        assert isinstance(runtime, TextRuntime)
+        rt_a = pipeline._get_runtime(agents["a"])
+        rt_b = pipeline._get_runtime(agents["b"])
+        assert isinstance(rt_a, ClaudeCodeRuntime)
+        assert rt_a is rt_b  # Same cached instance
 
     def test_full_pipeline_with_codex(self, tmp_project):
         agents = {

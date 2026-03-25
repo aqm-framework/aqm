@@ -344,7 +344,7 @@ class TestPipelineWithChunks:
         mock_rt.name = "mock"
         # Everyone agrees immediately but chunks are not done
         mock_rt.run.return_value = "VOTE: AGREE"
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Build todo app")
         queue.push(task, "session")
@@ -367,7 +367,7 @@ class TestPipelineWithChunks:
             "Done setup. CHUNK_DONE: C-001\nVOTE: AGREE",
             "Done build. CHUNK_DONE: C-002\nVOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Build app")
         queue.push(task, "session")
@@ -392,7 +392,7 @@ class TestPipelineWithChunks:
             "CHUNK_DONE: C-001\nCHUNK_DONE: C-002\nVOTE: AGREE",
             "VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Plan work")
         queue.push(task, "session")
@@ -414,7 +414,7 @@ class TestPipelineWithChunks:
             "VOTE: AGREE",
             "VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Info only")
         queue.push(task, "session")
@@ -437,7 +437,7 @@ class TestPipelineWithChunks:
             "CHUNK_DONE: C-001\nVOTE: AGREE",
             "VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Prompt test")
         queue.push(task, "session")
@@ -459,7 +459,7 @@ class TestPipelineWithChunks:
             "CHUNK_REMOVE: C-002\nCHUNK_DONE: C-001\nVOTE: AGREE",
             "VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Remove test")
         queue.push(task, "session")
@@ -490,7 +490,7 @@ class TestPipelineWithChunks:
         mock_rt = MagicMock()
         mock_rt.name = "mock"
         mock_rt.run.return_value = "VOTE: AGREE"
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="No chunks")
         queue.push(task, "session")

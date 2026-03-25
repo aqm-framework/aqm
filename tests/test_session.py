@@ -318,7 +318,7 @@ class TestPipelineSessionExecution:
             "I think this is good. VOTE: AGREE",  # arch round 1
             "Looks secure. VOTE: AGREE",           # sec round 1
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Design login")
         queue.push(task, "review")
@@ -342,7 +342,7 @@ class TestPipelineSessionExecution:
             "Addressed the concern. VOTE: AGREE",   # arch round 2
             "OK, resolved. VOTE: AGREE",            # sec round 2
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Design auth")
         queue.push(task, "review")
@@ -369,7 +369,7 @@ class TestPipelineSessionExecution:
         mock_rt.name = "mock"
         # Nobody ever votes
         mock_rt.run.return_value = "I disagree with the approach."
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Deadlocked topic")
         queue.push(task, "review")
@@ -408,7 +408,7 @@ class TestPipelineSessionExecution:
             "VOTE: AGREE",        # b agrees
             "I still disagree.",   # c does not agree
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Test majority")
         queue.push(task, "session")
@@ -445,7 +445,7 @@ class TestPipelineSessionExecution:
             "VOTE: AGREE",                          # b round 1
             "FINAL SUMMARY: we agreed on design X", # summary agent
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Summarize test")
         queue.push(task, "session")
@@ -497,7 +497,7 @@ class TestPipelineSessionExecution:
             "Secure enough. VOTE: AGREE", # sec in session
             "Implementation done.",      # implementer
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Build feature")
         queue.push(task, "planner")
@@ -548,7 +548,7 @@ class TestPipelineSessionExecution:
             "Agreed.",                              # dev round 2
             "Final summary from moderator.",        # summary agent call after consensus
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Mod test")
         queue.push(task, "session")
@@ -570,7 +570,7 @@ class TestPipelineSessionExecution:
             "VOTE: AGREE",
             "VOTE: AGREE",
         ]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         task = Task(description="Test stages")
         queue.push(task, "review")
@@ -592,7 +592,7 @@ class TestPipelineSessionExecution:
         mock_rt = MagicMock()
         mock_rt.name = "mock"
         mock_rt.run.side_effect = ["VOTE: AGREE", "VOTE: AGREE"]
-        pipeline._runtimes["claude_text"] = mock_rt
+        pipeline._runtimes["claude"] = mock_rt
 
         starts = []
         completes = []
