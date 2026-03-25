@@ -4,6 +4,8 @@ An orchestration framework where multiple AI agents pass tasks through **explici
 
 Build pipelines in YAML. Share them with anyone. Run them locally.
 
+**[한국어 문서 (Korean)](docs/README.ko.md)**
+
 ```
   [user] ──input──► [planner] ──► [reviewer] ──approve──► [design_session] ──► [implementer]
                         ▲              │                    ┌──┬──┬──┐
@@ -379,6 +381,7 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `model` | `string` | CLI default | Model override |
 | `system_prompt` | `string` | `""` | Jinja2 template: `{{ input }}`, `{{ context }}`, `{{ transcript }}`, `{{ chunks }}` |
 | `context_strategy` | `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
+| `context_window` | `int` | `3` | Recent stages in full; older stages summarized (0 = all) |
 | `human_input` | `boolean` \| `object` | `null` | Human-in-the-loop input (`before`, `on_demand`, `both`) |
 | `handoffs` | `list` | `[]` | Routing rules |
 | `gate` | `object` | `null` | Quality gate (`llm` or `human`) |
