@@ -503,7 +503,6 @@ aqm/
 │   ├── sqlite.py         # SQLiteQueue (프로덕션)
 │   └── file.py           # FileQueue (테스트용)
 ├── runtime/
-│   ├── text.py           # Claude 텍스트 전용 (레거시)
 │   ├── claude_code.py    # Claude Code (MCP 포함, 토큰 스트리밍)
 │   ├── gemini.py         # Gemini CLI
 │   └── codex.py          # Codex CLI
