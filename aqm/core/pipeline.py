@@ -396,8 +396,10 @@ class Pipeline:
                 f"(stage {task.next_stage_number})"
             )
 
-            # Build prompt
-            context_text = ctx_file.read()
+            # Build prompt (respect agent's context_strategy)
+            context_text = ctx_file.read_for_strategy(
+                agent.id, agent.context_strategy,
+            )
             prompt = build_prompt(
                 system_prompt_template=agent.system_prompt,
                 input_text=current_input,
@@ -490,6 +492,14 @@ class Pipeline:
                 reject_reason=(
                     gate_result.reason if gate_result else None
                 ),
+            )
+
+            # Write to agent's private context file
+            ctx_file.append_agent_context(
+                agent_id=agent.id,
+                stage_number=stage.stage_number,
+                input_text=current_input,
+                output_text=output,
             )
 
             if on_stage_complete:
@@ -695,7 +705,9 @@ class Pipeline:
                 prompt = build_prompt(
                     system_prompt_template=agent.system_prompt,
                     input_text=input_text,
-                    context=ctx_file.read(),
+                    context=ctx_file.read_for_strategy(
+                        agent.id, agent.context_strategy,
+                    ),
                     transcript=transcript,
                     chunks=chunk_mgr.summary() if has_chunks else "",
                 )
@@ -719,6 +731,14 @@ class Pipeline:
                 )
                 task.add_stage(stage)
                 self.queue.update(task)
+
+                # Write to agent's private context file
+                ctx_file.append_agent_context(
+                    agent_id=agent.id,
+                    stage_number=stage_num,
+                    input_text=f"[round {round_num}]",
+                    output_text=message,
+                )
 
                 # Append to transcript
                 ctx_file.append_turn(
@@ -792,7 +812,9 @@ class Pipeline:
                     summary_prompt = build_prompt(
                         system_prompt_template=summary_agent.system_prompt,
                         input_text=input_text,
-                        context=ctx_file.read(),
+                        context=ctx_file.read_for_strategy(
+                            summary_agent.id, summary_agent.context_strategy,
+                        ),
                         transcript=transcript,
                         chunks=chunk_mgr.summary() if has_chunks else "",
                     )

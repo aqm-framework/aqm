@@ -210,6 +210,12 @@
           "description": "Additional CLI flags passed to Claude Code when runtime is \"claude_code\". E.g. [\"--allowedTools\", \"Edit,Read,Bash\"].",
           "items": { "type": "string" }
         },
+        "context_strategy": {
+          "type": "string",
+          "enum": ["own", "shared", "both"],
+          "default": "both",
+          "description": "What context to inject into {{ context }}. 'own': agent's private notes only (token-efficient). 'shared': full shared context.md. 'both': shared + agent's notes (default, backward-compatible)."
+        },
         "abstract": {
           "type": "boolean",
           "default": false,

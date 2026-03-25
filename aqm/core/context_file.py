@@ -78,6 +78,57 @@ class ContextFile:
         sections = [s.strip() for s in sections if s.strip()]
         return "\n\n---\n\n".join(sections[-n:])
 
+    # ── Per-agent context ─────────────────────────────────────────────
+
+    def agent_context_path(self, agent_id: str) -> Path:
+        """Path to the per-agent context file."""
+        return self.task_dir / f"agent_{agent_id}.md"
+
+    def read_agent_context(self, agent_id: str) -> str:
+        """Return contents of the agent's private context file."""
+        path = self.agent_context_path(agent_id)
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8")
+
+    def append_agent_context(
+        self,
+        *,
+        agent_id: str,
+        stage_number: int,
+        input_text: str,
+        output_text: str,
+    ) -> None:
+        """Append a section to the agent's private context file."""
+        self.ensure_dir()
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        section = (
+            f"## [stage {stage_number}] {agent_id}\n"
+            f"**Time**: {now}\n"
+            f"\n### Input\n{input_text}\n\n### Output\n{output_text}\n\n---\n\n"
+        )
+        path = self.agent_context_path(agent_id)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(section)
+
+    def read_for_strategy(self, agent_id: str, strategy: str) -> str:
+        """Return context based on the agent's context_strategy.
+
+        - ``own``:    agent's private file only (token-efficient)
+        - ``shared``: shared context.md only
+        - ``both``:   shared + agent's notes (default, backward-compatible)
+        """
+        if strategy == "own":
+            return self.read_agent_context(agent_id)
+        elif strategy == "shared":
+            return self.read()
+        else:  # "both"
+            shared = self.read()
+            own = self.read_agent_context(agent_id)
+            if not own:
+                return shared
+            return f"{shared}\n\n--- Agent Notes ({agent_id}) ---\n\n{own}"
+
     # ── Transcript (conversational sessions) ──────────────────────────
 
     def init_transcript(
