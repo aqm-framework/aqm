@@ -62,6 +62,7 @@ tr:hover td { background:rgba(88,166,255,.04); }
 .badge-approved,.badge-completed { background:#0f2d16; color:#3fb950; }
 .badge-rejected,.badge-failed { background:#3d1214; color:#f85149; }
 .badge-cancelled { background:#30363d; color:#d29922; }
+.badge-awaiting_human_input { background:#0a2e2a; color:#39d2c0; }
 .badge-stalled { background:#462c08; color:#d29922; }
 .badge-started { background:#0d419d; color:#58a6ff; }
 

@@ -263,6 +263,7 @@ class Pipeline:
         on_stage_start=None,
         on_output=None,
         on_thinking=None,
+        on_human_input_request=None,
     ) -> Task:
         """Run a task through the pipeline.
 
@@ -274,6 +275,7 @@ class Pipeline:
             on_stage_start: Stage start callback (task, agent_id, stage_number)
             on_output: Output line callback (line_text) for streaming
             on_thinking: Thinking line callback (line_text) for streaming thinking
+            on_human_input_request: Callback (task, agent_id, questions) when human input needed
 
         Returns:
             The Task in completed (or gate-awaiting) state
@@ -409,6 +411,42 @@ class Pipeline:
                 f"(stage {task.next_stage_number})"
             )
 
+            # ── Human input: "before" mode ──
+            hi_cfg = agent.human_input
+            if hi_cfg and hi_cfg.enabled and hi_cfg.mode in ("before", "both"):
+                # Check if we already have a human response for this stage
+                hi_key = f"_human_input_{agent.id}_{task.next_stage_number}"
+                if hi_key not in task.metadata:
+                    question = hi_cfg.prompt or (
+                        f"Agent '{agent.name or agent.id}' needs your input before proceeding.\n\n"
+                        f"Current task: {current_input[:500]}"
+                    )
+                    task.status = TaskStatus.awaiting_human_input
+                    task.metadata["_human_input_pending"] = {
+                        "agent_id": agent.id,
+                        "stage_number": task.next_stage_number,
+                        "questions": [question],
+                        "mode": "before",
+                    }
+                    self.queue.update(task)
+
+                    if on_human_input_request:
+                        on_human_input_request(task, agent.id, [question])
+
+                    logger.info(
+                        f"[Pipeline] {task.id} awaiting human input "
+                        f"(agent={agent.id}, mode=before)"
+                    )
+                    return task
+                else:
+                    # Human already responded — inject into input
+                    human_response = task.metadata.pop(hi_key, "")
+                    if human_response:
+                        current_input = (
+                            f"{current_input}\n\n"
+                            f"--- User Input ---\n{human_response}"
+                        )
+
             # Build prompt (respect agent's context_strategy)
             context_text = ctx_file.read_for_strategy(
                 agent.id, agent.context_strategy,
@@ -456,6 +494,44 @@ class Pipeline:
                     f"[Pipeline] {task.id} agent '{agent.id}' execution failed: {e}"
                 )
                 return task
+
+            # ── Human input: "on_demand" mode ──
+            if hi_cfg and hi_cfg.enabled and hi_cfg.mode in ("on_demand", "both"):
+                hi_questions = self._parse_human_input_requests(output)
+                if hi_questions:
+                    hi_key = f"_human_input_od_{agent.id}_{stage.stage_number}"
+                    if hi_key not in task.metadata:
+                        # Pause pipeline — record stage first
+                        task.add_stage(stage)
+                        self.queue.update(task)
+
+                        task.status = TaskStatus.awaiting_human_input
+                        task.metadata["_human_input_pending"] = {
+                            "agent_id": agent.id,
+                            "stage_number": stage.stage_number,
+                            "questions": hi_questions,
+                            "mode": "on_demand",
+                        }
+                        self.queue.update(task)
+
+                        ctx_file.append_stage(
+                            stage_number=stage.stage_number,
+                            agent_id=agent.id,
+                            task_name=stage.task_name,
+                            status="awaiting_human_input",
+                            input_text=current_input,
+                            output_text=output,
+                        )
+
+                        if on_human_input_request:
+                            on_human_input_request(task, agent.id, hi_questions)
+
+                        logger.info(
+                            f"[Pipeline] {task.id} awaiting human input "
+                            f"(agent={agent.id}, mode=on_demand, "
+                            f"questions={len(hi_questions)})"
+                        )
+                        return task
 
             # Gate evaluation
             gate_result: Optional[GateResult] = None
@@ -568,6 +644,128 @@ class Pipeline:
         self.queue.update(task)
         logger.error(f"[Pipeline] {task.id} exceeded maximum stages")
         return task
+
+    @staticmethod
+    def _parse_human_input_requests(agent_output: str) -> list[str]:
+        """Extract ``HUMAN_INPUT: <question>`` directives from agent output."""
+        questions: list[str] = []
+        for m in re.finditer(r"HUMAN_INPUT:\s*(.+)", agent_output, re.IGNORECASE):
+            q = m.group(1).strip()
+            if q:
+                questions.append(q)
+        return questions
+
+    def resume_human_input(
+        self,
+        task_id: str,
+        response: str,
+        on_stage_complete=None,
+        on_stage_start=None,
+        on_output=None,
+        on_thinking=None,
+        on_human_input_request=None,
+    ) -> Task:
+        """Resume the pipeline after a human input response.
+
+        Records the response in context files and resumes the pipeline
+        from the agent that requested input.
+        """
+        task = self.queue.get(task_id)
+        if task is None:
+            raise ValueError(f"Task '{task_id}' not found.")
+        if task.status != TaskStatus.awaiting_human_input:
+            raise ValueError(
+                f"Task '{task_id}' is not awaiting human input. "
+                f"(current: {task.status.value})"
+            )
+
+        pending = task.metadata.pop("_human_input_pending", {})
+        agent_id = pending.get("agent_id", task.current_agent_id)
+        mode = pending.get("mode", "on_demand")
+        questions = pending.get("questions", [])
+
+        # Record in context files
+        ctx_file = self._get_context_file(task)
+        question_text = "\n".join(f"- {q}" for q in questions)
+        ctx_file.append_human_input(
+            agent_id=agent_id,
+            question=question_text,
+            response=response,
+        )
+
+        if mode == "before":
+            # Store response and re-run the same agent
+            stage_number = pending.get("stage_number", task.next_stage_number)
+            hi_key = f"_human_input_{agent_id}_{stage_number}"
+            task.metadata[hi_key] = response
+            task.status = TaskStatus.in_progress
+            self.queue.update(task)
+
+            # Determine input — use the last payload or description
+            payload_path = ctx_file.task_dir / "current_payload.md"
+            if payload_path.exists():
+                input_text = payload_path.read_text(encoding="utf-8")
+            else:
+                input_text = task.description
+
+            return self.run_task(
+                task,
+                agent_id,
+                input_text=input_text,
+                on_stage_complete=on_stage_complete,
+                on_stage_start=on_stage_start,
+                on_output=on_output,
+                on_thinking=on_thinking,
+                on_human_input_request=on_human_input_request,
+            )
+        else:
+            # on_demand: re-run the agent with human response appended
+            hi_key = f"_human_input_od_{agent_id}_{pending.get('stage_number', 0)}"
+            task.metadata[hi_key] = response
+            task.status = TaskStatus.in_progress
+            self.queue.update(task)
+
+            # Build new input with human response
+            latest = task.latest_stage
+            agent_output = latest.output_text if latest else ""
+            new_input = (
+                f"{latest.input_text if latest else task.description}\n\n"
+                f"--- Agent's Questions ---\n{question_text}\n\n"
+                f"--- User Response ---\n{response}\n\n"
+                f"--- Previous Agent Output ---\n{agent_output}\n\n"
+                f"Continue based on the user's response."
+            )
+
+            # Find next agent in handoffs or re-run same agent
+            agent = self.agents.get(agent_id)
+            if agent and agent.handoffs:
+                # Continue to handoff targets
+                handoff_targets = self._resolve_handoffs(
+                    agent, None, agent_output, latest.input_text if latest else "",
+                )
+                if handoff_targets:
+                    next_agent_id, _ = handoff_targets[0]
+                    ctx_file.save_payload(new_input)
+                    return self.run_task(
+                        task, next_agent_id,
+                        input_text=new_input,
+                        on_stage_complete=on_stage_complete,
+                        on_stage_start=on_stage_start,
+                        on_output=on_output,
+                        on_thinking=on_thinking,
+                        on_human_input_request=on_human_input_request,
+                    )
+
+            # No handoffs — re-run same agent
+            return self.run_task(
+                task, agent_id,
+                input_text=new_input,
+                on_stage_complete=on_stage_complete,
+                on_stage_start=on_stage_start,
+                on_output=on_output,
+                on_thinking=on_thinking,
+                on_human_input_request=on_human_input_request,
+            )
 
     def resume_task(
         self,

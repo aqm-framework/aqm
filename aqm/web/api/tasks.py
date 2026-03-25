@@ -57,6 +57,10 @@ class ResumeRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class HumanInputResponse(BaseModel):
+    response: str
+
+
 class PriorityRequest(BaseModel):
     priority: str  # critical, high, normal, low
 
@@ -127,6 +131,12 @@ def create_tasks_router(project_root: Path) -> APIRouter:
             def on_thinking(line):
                 broadcast_event(task.id, "stage_thinking", {"text": line})
 
+            def on_human_input_request(t, agent_id, questions):
+                broadcast_event(t.id, "human_input_request", {
+                    "agent_id": agent_id,
+                    "questions": questions,
+                })
+
             result = pipe.run_task(
                 task, start_agent,
                 input_text=input_text,
@@ -134,9 +144,15 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                 on_stage_start=on_stage_start,
                 on_output=on_output,
                 on_thinking=on_thinking,
+                on_human_input_request=on_human_input_request,
             )
 
-            if result.status == TaskStatus.awaiting_gate:
+            if result.status == TaskStatus.awaiting_human_input:
+                broadcast_event(task.id, "human_input_waiting", {
+                    "agent_id": result.current_agent_id,
+                    "pending": result.metadata.get("_human_input_pending", {}),
+                })
+            elif result.status == TaskStatus.awaiting_gate:
                 broadcast_event(task.id, "gate_waiting", {
                     "agent_id": result.current_agent_id,
                 })
@@ -417,6 +433,30 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         finally:
             queue.close()
 
+    # ── Human Input ────────────────────────────────────────────────────
+
+    @router.post("/api/tasks/{task_id}/human-input")
+    async def api_human_input(task_id: str, req: HumanInputResponse):
+        queue = _get_queue()
+        try:
+            task = queue.get(task_id)
+            if not task:
+                raise HTTPException(404, "Task not found")
+            if task.status != TaskStatus.awaiting_human_input:
+                raise HTTPException(400, f"Task not awaiting human input (status: {task.status.value})")
+        finally:
+            queue.close()
+
+        # Resume pipeline in background
+        thread = threading.Thread(
+            target=_resume_human_input_bg,
+            args=(project_root, task_id, req.response),
+            daemon=True,
+        )
+        thread.start()
+
+        return {"id": task_id, "status": "resuming", "message": "Human input received, pipeline resuming"}
+
     # ── Cancel ─────────────────────────────────────────────────────────
 
     @router.post("/api/tasks/{task_id}/cancel")
@@ -599,4 +639,78 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
         queue.close()
     except Exception as e:
         logger.error("Pipeline resume failed: %s", e)
+        broadcast_event(task_id, "task_failed", {"error": str(e)})
+
+
+def _resume_human_input_bg(project_root: Path, task_id: str, response: str):
+    """Resume pipeline after human input response in background thread."""
+    try:
+        db_path = get_db_path(project_root)
+        _q = SQLiteQueue(db_path)
+        _task = _q.get(task_id)
+        pipeline_name = _task.metadata.get("pipeline") if _task else None
+        _q.close()
+
+        agents_yaml_path = get_agents_yaml_path(project_root, pipeline_name)
+        agents = load_agents(agents_yaml_path)
+        queue = SQLiteQueue(db_path)
+        pipeline = Pipeline(agents, queue, project_root)
+
+        broadcast_event(task_id, "pipeline_resuming", {"decision": "human_input"})
+
+        def on_stage_complete(t, stage):
+            broadcast_event(t.id, "stage_complete", {
+                "agent_id": stage.agent_id,
+                "stage_number": stage.stage_number,
+                "output_preview": stage.output_text[:200],
+                "gate_result": stage.gate_result,
+            })
+
+        def on_stage_start(t, agent_id, stage_number):
+            broadcast_event(t.id, "stage_start", {
+                "agent_id": agent_id, "stage_number": stage_number,
+            })
+
+        def on_output(line):
+            broadcast_event(task_id, "stage_output", {"text": line})
+
+        def on_thinking(line):
+            broadcast_event(task_id, "stage_thinking", {"text": line})
+
+        def on_human_input_request(t, agent_id, questions):
+            broadcast_event(t.id, "human_input_request", {
+                "agent_id": agent_id,
+                "questions": questions,
+            })
+
+        result = pipeline.resume_human_input(
+            task_id, response,
+            on_stage_complete=on_stage_complete,
+            on_stage_start=on_stage_start,
+            on_output=on_output,
+            on_thinking=on_thinking,
+            on_human_input_request=on_human_input_request,
+        )
+
+        if result.status == TaskStatus.awaiting_human_input:
+            broadcast_event(task_id, "human_input_waiting", {
+                "agent_id": result.current_agent_id,
+                "pending": result.metadata.get("_human_input_pending", {}),
+            })
+        elif result.status == TaskStatus.awaiting_gate:
+            broadcast_event(task_id, "gate_waiting", {
+                "agent_id": result.current_agent_id,
+            })
+        elif result.status == TaskStatus.completed:
+            broadcast_event(task_id, "task_complete", {
+                "status": "completed",
+                "total_stages": len(result.stages),
+            })
+        elif result.status == TaskStatus.failed:
+            broadcast_event(task_id, "task_failed", {
+                "error": result.metadata.get("error", ""),
+            })
+        queue.close()
+    except Exception as e:
+        logger.error("Human input resume failed: %s", e)
         broadcast_event(task_id, "task_failed", {"error": str(e)})

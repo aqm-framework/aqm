@@ -73,11 +73,64 @@ async function gateAction(action) {{
 }}
 </script>"""
 
-    # Live progress panel (for in_progress or awaiting_gate tasks)
+    # Human input action panel
+    human_input_panel = ""
+    if task.status == TaskStatus.awaiting_human_input:
+        pending = task.metadata.get("_human_input_pending", {})
+        hi_agent = pending.get("agent_id", "")
+        hi_questions = pending.get("questions", [])
+        hi_mode = pending.get("mode", "")
+        questions_html = "".join(
+            f'<div style="background:var(--surface2);border-left:3px solid var(--cyan);'
+            f'padding:10px 14px;margin:8px 0;border-radius:0 6px 6px 0;font-size:14px;">'
+            f'{esc(q)}</div>'
+            for q in hi_questions
+        )
+        human_input_panel = f"""\
+<div class="card" style="border-color:var(--cyan);">
+  <h3 style="color:var(--cyan);"><span class="live-dot" style="background:var(--cyan);"></span>Agent Needs Your Input</h3>
+  <div style="margin-top:4px;font-size:13px;color:var(--text-dim);">
+    Agent <strong>{esc(hi_agent)}</strong> is asking for your input ({esc(hi_mode)} mode)
+  </div>
+  <div style="margin-top:12px;">
+    {questions_html}
+    <div class="form-group" style="margin-top:12px;">
+      <label for="humanInput">Your Response</label>
+      <textarea id="humanInput" rows="4" placeholder="Type your response..."></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="submitHumanInput()">Submit Response</button>
+  </div>
+</div>
+<script>
+async function submitHumanInput() {{
+  const response = document.getElementById('humanInput').value.trim();
+  if (!response) {{ showToast('Please enter a response', 'error'); return; }}
+  try {{
+    await apiFetch('/api/tasks/{esc(task.id)}/human-input', {{
+      method:'POST', body:JSON.stringify({{response:response}})
+    }});
+    showToast('Response submitted — pipeline resuming...');
+    const titleEl = document.getElementById('liveTitle');
+    const statusEl = document.getElementById('liveStatus');
+    if (titleEl) {{
+      titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Resuming...';
+      statusEl.innerHTML = 'Processing your input...';
+    }} else {{
+      setTimeout(() => location.reload(), 600);
+    }}
+  }} catch(e) {{}}
+}}
+</script>"""
+
+    # Live progress panel (for in_progress, awaiting_gate, or awaiting_human_input tasks)
     live_panel = ""
-    show_live = task.status in (TaskStatus.in_progress, TaskStatus.awaiting_gate)
+    show_live = task.status in (TaskStatus.in_progress, TaskStatus.awaiting_gate, TaskStatus.awaiting_human_input)
     if show_live:
-        panel_title = "Pipeline Running" if task.status == TaskStatus.in_progress else "Awaiting Approval"
+        panel_title = (
+            "Pipeline Running" if task.status == TaskStatus.in_progress
+            else "Awaiting Human Input" if task.status == TaskStatus.awaiting_human_input
+            else "Awaiting Approval"
+        )
         live_panel = f"""\
 <div class="card" style="border-color:var(--accent);">
   <h3 id="liveTitle"><span class="live-dot"></span>{panel_title}</h3>
@@ -133,8 +186,49 @@ async function gateAction(action) {{
     if (thinkingExpanded) thinkingOutput.scrollTop = thinkingOutput.scrollHeight;
   }};
 
+  // Track current stage output for timeline
+  let currentStageOutput = '';
+  let currentStageAgentId = '';
+  let currentStageNumber = 0;
+
+  function addTimelineItem(stageNum, agentId, gateResult, outputText, isRunning) {{
+    const timeline = document.getElementById('liveTimeline');
+    if (!timeline) return;
+    const emptyState = timeline.querySelector('.empty-state');
+    if (emptyState) emptyState.remove();
+
+    // Remove existing running item for this stage
+    const existingId = 'timeline-stage-' + stageNum;
+    const existing = document.getElementById(existingId);
+    if (existing) existing.remove();
+
+    const statusClass = gateResult === 'approved' ? 'approved'
+      : gateResult === 'rejected' ? 'rejected'
+      : isRunning ? 'running' : '';
+    const gateHtml = gateResult
+      ? ' · Gate: <span class="badge badge-' + gateResult + '">' + gateResult + '</span>'
+      : '';
+    const preview = (outputText || '').substring(0, 200) + (outputText && outputText.length > 200 ? '...' : '');
+    const now = new Date().toISOString().replace('T',' ').substring(0,19);
+
+    const item = document.createElement('div');
+    item.className = 'timeline-item ' + statusClass;
+    item.id = existingId;
+    item.innerHTML = '<div><strong>Stage ' + stageNum + '</strong> · '
+      + '<span style="color:var(--accent);">' + agentId + '</span>'
+      + gateHtml + '</div>'
+      + '<div style="font-size:12px;color:var(--text-dim);">' + now + (isRunning ? ' · running...' : '') + '</div>'
+      + '<div style="font-size:13px;margin-top:4px;color:var(--text-dim);">' + preview.replace(/</g,'&lt;') + '</div>'
+      + (outputText && !isRunning ? '<details><summary>Full Output</summary><pre>' + outputText.replace(/</g,'&lt;') + '</pre></details>' : '');
+    timeline.appendChild(item);
+    item.scrollIntoView({{ behavior: 'smooth', block: 'nearest' }});
+  }}
+
   es.addEventListener('stage_start', (e) => {{
     const d = JSON.parse(e.data);
+    currentStageOutput = '';
+    currentStageAgentId = d.agent_id;
+    currentStageNumber = d.stage_number;
     titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Running';
     statusEl.innerHTML = '<span class="live-dot"></span>Stage ' + d.stage_number + ': <strong>' + d.agent_id + '</strong> running...';
     outputEl.textContent = '';
@@ -144,6 +238,8 @@ async function gateAction(action) {{
     thinkingLines = 0;
     thinkingPanel.style.display = 'none';
     thinkingDot.style.display = 'inline-block';
+    // Add running indicator to timeline
+    addTimelineItem(d.stage_number, d.agent_id, null, '', true);
   }});
   es.addEventListener('stage_thinking', (e) => {{
     const d = JSON.parse(e.data);
@@ -155,9 +251,9 @@ async function gateAction(action) {{
   }});
   es.addEventListener('stage_output', (e) => {{
     const d = JSON.parse(e.data);
+    currentStageOutput += d.text + '\\n';
     outputEl.style.display = 'block';
     outputLabel.style.display = 'block';
-    // Stop thinking animation when output starts
     thinkingDot.style.display = 'none';
     outputEl.textContent += d.text + '\\n';
     outputEl.scrollTop = outputEl.scrollHeight;
@@ -167,6 +263,8 @@ async function gateAction(action) {{
     stageCount++;
     statusEl.innerHTML = 'Stage ' + d.stage_number + ': <strong>' + d.agent_id + '</strong> — ' + (d.gate_result || 'done');
     thinkingDot.style.display = 'none';
+    // Update timeline with completed stage
+    addTimelineItem(d.stage_number, d.agent_id, d.gate_result, d.output_preview || currentStageOutput, false);
   }});
   es.addEventListener('pipeline_resuming', (e) => {{
     titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Resuming...';
@@ -177,6 +275,11 @@ async function gateAction(action) {{
     thinkingPanel.style.display = 'none';
     thinkingLines = 0;
   }});
+  es.addEventListener('human_input_waiting', (e) => {{
+    es.close();
+    showToast('Agent needs your input');
+    setTimeout(() => location.reload(), 800);
+  }});
   es.addEventListener('gate_waiting', (e) => {{
     es.close();
     showToast('Awaiting gate approval');
@@ -185,7 +288,9 @@ async function gateAction(action) {{
   es.addEventListener('task_complete', (e) => {{
     es.close();
     showToast('Pipeline completed');
-    setTimeout(() => location.reload(), 800);
+    titleEl.innerHTML = '<span style="color:var(--green);">&#10003;</span> Pipeline Completed';
+    statusEl.innerHTML = 'All stages finished — ' + stageCount + ' stages total';
+    document.getElementById('cancelBtn').style.display = 'none';
   }});
   es.addEventListener('task_cancelled', (e) => {{
     es.close();
@@ -196,7 +301,9 @@ async function gateAction(action) {{
     es.close();
     const d = JSON.parse(e.data);
     showToast('Pipeline failed: ' + (d.error||''), 'error');
-    setTimeout(() => location.reload(), 1500);
+    titleEl.innerHTML = '<span style="color:var(--red);">&#10007;</span> Pipeline Failed';
+    statusEl.innerHTML = d.error || 'Unknown error';
+    document.getElementById('cancelBtn').style.display = 'none';
   }});
   es.onerror = () => {{ es.close(); }};
 }})();
@@ -212,7 +319,7 @@ async function cancelRunningTask() {{
 
     # Stage timeline
     if not task.stages:
-        timeline = '<div class="empty-state" style="padding:24px;">No stages recorded yet.</div>'
+        timeline = '<div class="timeline" id="liveTimeline"><div class="empty-state" style="padding:24px;">No stages recorded yet.</div></div>'
     else:
         items = []
         for s in task.stages:
@@ -247,7 +354,7 @@ async function cancelRunningTask() {{
                 f'<details><summary>Full Output</summary><pre>{esc(s.output_text)}</pre></details>'
                 f'</div>'
             )
-        timeline = f'<div class="timeline">{"".join(items)}</div>'
+        timeline = f'<div class="timeline" id="liveTimeline">{"".join(items)}</div>'
 
     # Context.md viewer
     context_section = ""
@@ -290,7 +397,7 @@ document.getElementById('fixForm').addEventListener('submit', async (e) => {{
     return layout(
         f"Task {short_id}",
         f'<h1>Task {esc(short_id)}</h1>\n'
-        f'{meta}\n{gate_actions}\n{live_panel}\n'
+        f'{meta}\n{gate_actions}\n{human_input_panel}\n{live_panel}\n'
         f'<h2 style="margin-top:24px;">Stage Timeline</h2>\n{timeline}\n'
         f'{context_section}\n{fix_section}',
         active="tasks",

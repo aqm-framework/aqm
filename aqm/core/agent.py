@@ -113,6 +113,23 @@ class ChunksConfig(BaseModel):
     initial: list[str] = Field(default_factory=list)
 
 
+class HumanInputConfig(BaseModel):
+    """Configuration for human-in-the-loop interaction.
+
+    Allows agents to request input from humans during pipeline execution.
+
+    Modes:
+      - ``before``:    Always ask the user before the agent runs.
+      - ``on_demand``: Agent requests input via ``HUMAN_INPUT: <question>``
+                       directives in its output.
+      - ``both``:      Combine before and on_demand.
+    """
+
+    enabled: bool = True
+    mode: Literal["before", "on_demand", "both"] = "on_demand"
+    prompt: str = ""  # Custom prompt shown to user (for 'before' mode)
+
+
 class AgentDefinition(BaseModel):
     """Complete definition of a single agent or session node.
 
@@ -133,6 +150,7 @@ class AgentDefinition(BaseModel):
     mcp: list[MCPServerConfig] = Field(default_factory=list)
     claude_code_flags: Optional[list[str]] = None
     context_strategy: Literal["own", "shared", "both"] = "both"
+    human_input: Optional[HumanInputConfig] = None
     abstract: bool = False
     extends: Optional[str] = None
 
@@ -143,6 +161,16 @@ class AgentDefinition(BaseModel):
     consensus: Optional[ConsensusConfig] = None
     summary_agent: Optional[str] = None
     chunks: Optional[ChunksConfig] = None
+
+    @field_validator("human_input", mode="before")
+    @classmethod
+    def _normalize_human_input(cls, v: Any) -> Any:
+        """Allow shorthand: ``human_input: true`` or ``human_input: "before"``."""
+        if v is True:
+            return {"enabled": True, "mode": "on_demand"}
+        if isinstance(v, str):
+            return {"enabled": True, "mode": v}
+        return v
 
     @field_validator("mcp", mode="before")
     @classmethod
