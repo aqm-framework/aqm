@@ -582,7 +582,13 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
 
     queue = _get_queue(root)
 
-    # Check for running tasks (sequential mode)
+    # Recover stale tasks (in_progress from a previous crashed run)
+    try:
+        queue.recover_stale_tasks()
+    except Exception:
+        pass
+
+    # Check for running tasks (sequential mode) with timeout
     if not parallel:
         running = queue.list_tasks(status=TaskStatus.in_progress)
         if running:
@@ -591,10 +597,22 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
                 f"(use --parallel to skip waiting)"
             )
             import time as _time
+            _wait_start = _time.time()
+            _WAIT_TIMEOUT = 30  # seconds
             while True:
                 _time.sleep(2)
                 running = queue.list_tasks(status=TaskStatus.in_progress)
                 if not running:
+                    break
+                if _time.time() - _wait_start > _WAIT_TIMEOUT:
+                    console.print(
+                        f"[yellow]⚠ Timeout:[/] {len(running)} task(s) still in_progress "
+                        f"after {_WAIT_TIMEOUT}s. Marking as stalled and proceeding."
+                    )
+                    for stale in running:
+                        stale.status = TaskStatus.stalled
+                        stale.metadata["stall_reason"] = "Wait timeout in aqm run"
+                        queue.update(stale)
                     break
 
     start_agent = agent or next(iter(agents))
