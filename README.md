@@ -11,19 +11,46 @@ Build pipelines in YAML. Share them with anyone. Run them locally.
       [planner] ──► [reviewer] ──┴─approve──► [developer] ──► [qa]
 ```
 
-## Powered by Claude Code
+## Multi-LLM Support
 
-aqm uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `text` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
+aqm supports **multiple LLM providers** in the same pipeline. Mix and match runtimes per agent — use the best model for each role. All runtimes use CLI subprocess calls only (no API keys or SDK setup needed).
 
-- **`text` runtime** — Calls `claude -p <prompt> --print` for pure text generation (planning, reviewing, summarizing)
-- **`claude_code` runtime** — Runs Claude Code CLI with full tool access (file read/write, code execution, MCP tools)
-- **LLM Gate** — Also uses the Claude CLI for automatic approve/reject evaluation
+| Runtime | Provider | CLI | Install |
+|---|---|---|---|
+| `claude` | Anthropic | `claude` CLI (auto-selects text or code mode) | `npm i -g @anthropic-ai/claude-code && claude login` |
+| `gemini` | Google | `gemini -p <prompt>` (headless mode) | `npm i -g @google/gemini-cli` |
+| `codex` | OpenAI | `codex exec <prompt>` (non-interactive) | `npm i -g @openai/codex` |
 
-> **Prerequisite:** Install Claude Code CLI and authenticate before using aqm.
-> ```bash
-> npm install -g @anthropic-ai/claude-code
-> claude login
-> ```
+> **Claude auto-mode:** When an agent has `mcp` servers or `claude_code_flags`, Claude automatically runs in **Code mode** (full tool access). Otherwise it runs in **text-only mode** (fast, no tools).
+
+**Example — Multi-provider pipeline:**
+
+```yaml
+agents:
+  - id: planner
+    runtime: gemini              # Gemini for fast planning
+    model: gemini-2.5-flash
+    system_prompt: "Plan the work: {{ input }}"
+    handoffs:
+      - to: developer
+        condition: always
+
+  - id: developer
+    runtime: claude              # Auto Code mode (has mcp)
+    mcp:
+      - server: github
+    system_prompt: "Implement: {{ input }}"
+    handoffs:
+      - to: reviewer
+        condition: always
+
+  - id: reviewer
+    runtime: codex               # Codex for code review
+    model: o4-mini
+    system_prompt: "Review: {{ input }}"
+```
+
+> **Note:** `runtime` is a **required field** — every agent must explicitly declare which provider to use.
 
 ## Why aqm?
 
@@ -94,7 +121,7 @@ agents:
   - id: planner
     name: Planning Agent
     model: claude-opus-4-6
-    runtime: text
+    runtime: claude
     mcp:
       - server: github
       - server: filesystem
@@ -109,7 +136,7 @@ agents:
   - id: reviewer
     name: Review Agent
     model: claude-opus-4-6
-    runtime: text
+    runtime: claude
     system_prompt: |
       Review the specification. Decide approve or reject.
       If rejecting, always include the reason.
@@ -124,7 +151,7 @@ agents:
 
   - id: developer
     name: Development Agent
-    runtime: claude_code
+    runtime: claude
     mcp:
       - server: github
       - server: postgres
@@ -135,7 +162,7 @@ agents:
 
   - id: qa
     name: QA Agent
-    runtime: claude_code
+    runtime: claude
     mcp:
       - server: browsertools
       - server: sentry
@@ -254,12 +281,12 @@ Select AI model:
         You are a senior Next.js/React architect...
       ...
     - id: developer
-      runtime: claude_code
+      runtime: claude
       mcp:
         - github
       ...
     - id: qa
-      runtime: claude_code
+      runtime: claude
       system_prompt: |
         Run Vitest unit tests and Playwright e2e tests...
       ...
@@ -696,7 +723,7 @@ imports:
 
 agents:
   - id: planner
-    runtime: text
+    runtime: claude
     handoffs:
       - to: security_reviewer
         condition: always
@@ -706,7 +733,7 @@ agents:
 # .aqm/shared/reviewer.yaml
 agents:
   - id: security_reviewer
-    runtime: text
+    runtime: claude
     system_prompt: "Review for security vulnerabilities: {{ input }}"
     gate:
       type: llm
@@ -723,7 +750,7 @@ Define a base agent and extend it to create specialized variants:
 agents:
   - id: base_reviewer
     abstract: true          # Not instantiated — only used as a base
-    runtime: text
+    runtime: claude
     gate:
       type: llm
     system_prompt: "Review: {{ input }}"
@@ -751,7 +778,7 @@ Each agent supports the following fields:
 agents:
   - id: planner                      # (required) Unique identifier, used in handoff routing
     name: Planning Agent             # (required) Display name for CLI output and dashboard
-    runtime: text                     # (optional) text | claude_code — default: text
+    runtime: claude                     # (required) claude | gemini | codex
     model: claude-sonnet-4-20250514  # (optional) Model to use, omit for CLI default
     system_prompt: |                 # (optional) Jinja2 template for the system prompt
       You are a software planner.
@@ -776,7 +803,7 @@ agents:
 |---|---|---|---|---|
 | `id` | `string` | **Yes** | — | Unique identifier. Used as handoff target. Must not duplicate. |
 | `name` | `string` | **Yes** | — | Human-readable display name. |
-| `runtime` | `"text"` \| `"claude_code"` | No | `"text"` | Execution runtime. See [Runtime](#runtime) section. |
+| `runtime` | `"claude"` \| `"gemini"` \| `"codex"` | **Yes** | — | Execution runtime. See [Runtime](#runtime) section. |
 | `model` | `string` | No | CLI default | Claude model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-20250514`). |
 | `system_prompt` | `string` | No | `""` | Jinja2 template. Available variables: `{{ input }}`, `{{ output }}`. |
 | `handoffs` | `list[Handoff]` | No | `[]` | Where to send results after this agent completes. |
@@ -790,17 +817,29 @@ agents:
 
 ### Runtime
 
-| Value | Description | Use Case |
-|---|---|---|
-| `text` | Runs `claude -p <prompt> --print`. Text-only, no tool access. | Planning, reviewing, summarizing, analysis |
-| `claude_code` | Runs Claude Code CLI with full tool access. Can read/write files, execute shell commands, use MCP tools. | Implementation, testing, file manipulation |
+`runtime` is **required** — every agent must declare its provider.
 
-Both runtimes invoke the `claude` CLI as a subprocess. The difference is that `text` mode disables tool use, while `claude_code` mode enables full Claude Code capabilities.
+| Value | Provider | Description | Use Case |
+|---|---|---|---|
+| `claude` | Anthropic | Uses Claude CLI. Auto-selects text-only or Code mode (with tools/MCP). | All tasks — planning, review, implementation |
+| `gemini` | Google | Runs `gemini -p <prompt>` in headless mode. System prompt via `GEMINI_SYSTEM_MD` env var. | Text generation, planning, review |
+| `codex` | OpenAI | Runs `codex exec <prompt>` in non-interactive mode with `--full-auto`. | Code generation, implementation, review |
 
-**model values** — Any valid Claude model ID:
+**Claude models:**
 - `claude-opus-4-6` — Most capable, best for complex reasoning
-- `claude-sonnet-4-20250514` — Balanced speed and quality (recommended default)
+- `claude-sonnet-4-20250514` — Balanced speed and quality
 - `claude-haiku-4-5-20251001` — Fastest, best for simple tasks
+
+**Gemini models:**
+- `gemini-3.1-pro-preview` — Most capable (latest, Feb 2026)
+- `gemini-2.5-pro` — Strong reasoning, stable
+- `gemini-2.5-flash` — Fast and capable (default)
+- `gemini-2.5-flash-lite` — Fastest, cheapest
+
+**OpenAI Codex models:**
+- `o4-mini` — Fast code generation (default)
+- `o3` — Strong reasoning
+- `gpt-4.1` — General purpose
 
 ---
 
@@ -903,7 +942,7 @@ handoffs:
 agents:
   - id: triage
     name: Triage Agent
-    runtime: text
+    runtime: claude
     system_prompt: |
       Analyze this customer request. Determine which teams should handle it.
       If multiple teams are needed, list them all.
@@ -914,17 +953,17 @@ agents:
 
   - id: billing
     name: Billing Agent
-    runtime: text
+    runtime: claude
     system_prompt: "Handle billing issues: {{ input }}"
 
   - id: technical
     name: Technical Agent
-    runtime: claude_code
+    runtime: claude
     system_prompt: "Investigate technical issues: {{ input }}"
 
   - id: account
     name: Account Agent
-    runtime: text
+    runtime: claude
     system_prompt: "Handle account issues: {{ input }}"
 ```
 
@@ -1009,7 +1048,7 @@ npx -y @modelcontextprotocol/server-{name} [args...]
 
 ### claude_code_flags
 
-Extra CLI flags passed directly to the `claude` command. Only applies when `runtime: claude_code`.
+Extra CLI flags passed directly to the `claude` command. Only applies when `runtime: claude`.
 
 ```yaml
 claude_code_flags:
@@ -1028,7 +1067,7 @@ This is useful for restricting which tools an agent can use, or passing other Cl
 agents:
   - id: planner
     name: Planning Agent
-    runtime: text
+    runtime: claude
     model: claude-sonnet-4-20250514
     system_prompt: |
       You are a software planner.
@@ -1042,7 +1081,7 @@ agents:
 
   - id: reviewer
     name: Review Agent
-    runtime: text
+    runtime: claude
     model: claude-sonnet-4-20250514
     system_prompt: |
       Review this specification. Decide approve or reject.
@@ -1064,7 +1103,7 @@ agents:
 
   - id: developer
     name: Development Agent
-    runtime: claude_code
+    runtime: claude
     model: claude-sonnet-4-20250514
     mcp:
       - server: filesystem
@@ -1082,7 +1121,7 @@ agents:
 
   - id: qa
     name: QA Agent
-    runtime: claude_code
+    runtime: claude
     mcp:
       - server: browsertools
     system_prompt: |
@@ -1170,8 +1209,10 @@ aqm/
 │   │   └── file.py           # FileQueue (testing)
 │   ├── runtime/
 │   │   ├── base.py           # AbstractRuntime interface
-│   │   ├── text.py            # Claude CLI runtime (text-only)
-│   │   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
+│   │   ├── text.py           # Claude CLI runtime (claude_text)
+│   │   ├── claude_code.py    # Claude Code CLI runtime (claude_code)
+│   │   ├── gemini.py         # Google Gemini CLI runtime (gemini_cli)
+│   │   └── codex.py          # OpenAI Codex CLI runtime (codex_cli)
 │   ├── web/
 │   │   ├── app.py            # FastAPI app factory
 │   │   ├── templates.py      # Shared CSS/layout/helpers
