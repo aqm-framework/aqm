@@ -121,7 +121,7 @@ class Pipeline:
         task_dir = tasks_dir / task.id
         if not task.context_dir:
             task.context_dir = str(task_dir)
-        return ContextFile(task_dir, preview_max_chars=self.config.context.preview_max_chars)
+        return ContextFile(task_dir)
 
     # ------------------------------------------------------------------
     # Handoff condition evaluation

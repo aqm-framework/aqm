@@ -462,15 +462,8 @@ gate:
 
 timeouts:                     # 런타임 서브프로세스 타임아웃 (초)
   claude: 600
-  gemini: 300
+  gemini: 600
   codex: 600
-
-server:
-  host: 127.0.0.1
-  port: 8000
-
-context:
-  preview_max_chars: 120      # 스마트 윈도잉 요약 미리보기 길이
 ```
 
 | 필드 | 타입 | 기본값 | 설명 |
@@ -480,11 +473,8 @@ context:
 | `gate.timeout` | `int` | `120` | 게이트 서브프로세스 타임아웃 (초) |
 | `gate.system_prompt` | `string` | 내장 프롬프트 | 커스텀 게이트 시스템 프롬프트 |
 | `timeouts.claude` | `int` | `600` | Claude 런타임 타임아웃 |
-| `timeouts.gemini` | `int` | `300` | Gemini CLI 런타임 타임아웃 |
+| `timeouts.gemini` | `int` | `600` | Gemini CLI 런타임 타임아웃 |
 | `timeouts.codex` | `int` | `600` | Codex CLI 런타임 타임아웃 |
-| `server.host` | `string` | `"127.0.0.1"` | 웹 대시보드 호스트 |
-| `server.port` | `int` | `8000` | 웹 대시보드 포트 |
-| `context.preview_max_chars` | `int` | `120` | 스마트 컨텍스트 요약 미리보기 길이 |
 
 ## 아키텍처
 
