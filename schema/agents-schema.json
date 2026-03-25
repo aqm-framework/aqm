@@ -109,9 +109,9 @@
         },
         "runtime": {
           "type": "string",
-          "enum": ["text", "claude_code"],
+          "enum": ["text", "claude_code", "gemini_cli", "gemini_api"],
           "default": "text",
-          "description": "Execution runtime. \"text\" runs Claude CLI in text-only mode (no tool access). \"claude_code\" spawns a Claude Code CLI subprocess with full tool access."
+          "description": "Execution runtime. \"text\" runs Claude CLI in text-only mode (no tool access). \"claude_code\" spawns a Claude Code CLI subprocess with full tool access. \"gemini_cli\" runs Google Gemini via the gemini CLI. \"gemini_api\" uses the Google GenAI SDK directly (requires GEMINI_API_KEY)."
         },
         "model": {
           "type": ["string", "null"],

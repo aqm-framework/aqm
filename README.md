@@ -11,19 +11,42 @@ Build pipelines in YAML. Share them with anyone. Run them locally.
       [planner] ──► [reviewer] ──┴─approve──► [developer] ──► [qa]
 ```
 
-## Powered by Claude Code
+## Multi-LLM Support
 
-aqm uses **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** (Anthropic's CLI) as the underlying LLM runtime. Both `text` and `claude_code` runtimes invoke the `claude` CLI as a subprocess — no API key configuration or SDK setup required.
+aqm supports **multiple LLM providers** in the same pipeline. Mix and match runtimes per agent — use the best model for each role.
 
-- **`text` runtime** — Calls `claude -p <prompt> --print` for pure text generation (planning, reviewing, summarizing)
-- **`claude_code` runtime** — Runs Claude Code CLI with full tool access (file read/write, code execution, MCP tools)
-- **LLM Gate** — Also uses the Claude CLI for automatic approve/reject evaluation
+| Runtime | Provider | Mode | Prerequisite |
+|---|---|---|---|
+| `text` | Claude (Anthropic) | CLI subprocess | `npm i -g @anthropic-ai/claude-code && claude login` |
+| `claude_code` | Claude (Anthropic) | CLI with tool access | Same as above |
+| `gemini_cli` | Gemini (Google) | CLI subprocess | `npm i -g @anthropic-ai/gemini-cli` or [gemini-cli](https://github.com/google-gemini/gemini-cli) |
+| `gemini_api` | Gemini (Google) | SDK (API direct) | `pip install aqm[gemini]` + `export GEMINI_API_KEY=...` |
 
-> **Prerequisite:** Install Claude Code CLI and authenticate before using aqm.
-> ```bash
-> npm install -g @anthropic-ai/claude-code
-> claude login
-> ```
+**Example — Cost-optimized pipeline mixing providers:**
+
+```yaml
+agents:
+  - id: planner
+    runtime: gemini_api          # Fast & cheap planning via Gemini API
+    model: gemini-2.0-flash
+    system_prompt: "Plan the work: {{ input }}"
+    handoffs:
+      - to: developer
+        condition: always
+
+  - id: developer
+    runtime: claude_code         # Claude Code for code execution + MCP
+    system_prompt: "Implement: {{ input }}"
+    handoffs:
+      - to: reviewer
+        condition: always
+
+  - id: reviewer
+    runtime: gemini_cli          # Gemini CLI for review (no API key needed)
+    system_prompt: "Review: {{ input }}"
+```
+
+> **Note:** `text` and `claude_code` require Claude Code CLI. `gemini_cli` requires the Gemini CLI. `gemini_api` requires the `google-genai` SDK and an API key — no CLI needed.
 
 ## Why aqm?
 
@@ -776,7 +799,7 @@ agents:
 |---|---|---|---|---|
 | `id` | `string` | **Yes** | — | Unique identifier. Used as handoff target. Must not duplicate. |
 | `name` | `string` | **Yes** | — | Human-readable display name. |
-| `runtime` | `"text"` \| `"claude_code"` | No | `"text"` | Execution runtime. See [Runtime](#runtime) section. |
+| `runtime` | `"text"` \| `"claude_code"` \| `"gemini_cli"` \| `"gemini_api"` | No | `"text"` | Execution runtime. See [Runtime](#runtime) section. |
 | `model` | `string` | No | CLI default | Claude model ID (e.g. `claude-opus-4-6`, `claude-sonnet-4-20250514`). |
 | `system_prompt` | `string` | No | `""` | Jinja2 template. Available variables: `{{ input }}`, `{{ output }}`. |
 | `handoffs` | `list[Handoff]` | No | `[]` | Where to send results after this agent completes. |
@@ -790,17 +813,22 @@ agents:
 
 ### Runtime
 
-| Value | Description | Use Case |
-|---|---|---|
-| `text` | Runs `claude -p <prompt> --print`. Text-only, no tool access. | Planning, reviewing, summarizing, analysis |
-| `claude_code` | Runs Claude Code CLI with full tool access. Can read/write files, execute shell commands, use MCP tools. | Implementation, testing, file manipulation |
+| Value | Provider | Description | Use Case |
+|---|---|---|---|
+| `text` | Claude | Runs `claude -p <prompt> --print`. Text-only, no tool access. | Planning, reviewing, summarizing, analysis |
+| `claude_code` | Claude | Runs Claude Code CLI with full tool access. Can read/write files, execute shell commands, use MCP tools. | Implementation, testing, file manipulation |
+| `gemini_cli` | Google | Runs `gemini -p <prompt>` via the Gemini CLI. | Text generation without API key setup |
+| `gemini_api` | Google | Uses the `google-genai` SDK directly. Faster, supports streaming natively. | Production, high-throughput, streaming |
 
-Both runtimes invoke the `claude` CLI as a subprocess. The difference is that `text` mode disables tool use, while `claude_code` mode enables full Claude Code capabilities.
-
-**model values** — Any valid Claude model ID:
+**Claude model values:**
 - `claude-opus-4-6` — Most capable, best for complex reasoning
 - `claude-sonnet-4-20250514` — Balanced speed and quality (recommended default)
 - `claude-haiku-4-5-20251001` — Fastest, best for simple tasks
+
+**Gemini model values:**
+- `gemini-2.0-flash` — Fast and capable (default for gemini runtimes)
+- `gemini-1.5-pro` — Best for complex reasoning
+- `gemini-1.5-flash` — Fastest, best for simple tasks
 
 ---
 
@@ -1171,8 +1199,9 @@ aqm/
 │   │   └── file.py           # FileQueue (testing)
 │   ├── runtime/
 │   │   ├── base.py           # AbstractRuntime interface
-│   │   ├── text.py            # Claude CLI runtime (text-only)
-│   │   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
+│   │   ├── text.py           # Claude CLI runtime (text-only)
+│   │   ├── claude_code.py    # Claude Code CLI runtime (tools + MCP)
+│   │   └── gemini.py         # Google Gemini runtime (CLI + API)
 │   ├── web/
 │   │   ├── app.py            # FastAPI app factory
 │   │   ├── templates.py      # Shared CSS/layout/helpers
