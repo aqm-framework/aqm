@@ -498,8 +498,7 @@ aqm/
 │   ├── sqlite.py         # SQLiteQueue (production)
 │   └── file.py           # FileQueue (testing)
 ├── runtime/
-│   ├── text.py           # Claude text-only (legacy)
-│   ├── claude_code.py    # Claude Code (with MCP)
+│   ├── claude_code.py    # Claude Code (with MCP, token streaming)
 │   ├── gemini.py         # Gemini CLI
 │   └── codex.py          # Codex CLI
 ├── web/
