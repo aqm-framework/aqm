@@ -94,7 +94,7 @@
     "AgentDefinition": {
       "type": "object",
       "description": "Complete definition of a single agent in the pipeline.",
-      "required": ["id"],
+      "required": ["id", "runtime"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -109,9 +109,8 @@
         },
         "runtime": {
           "type": "string",
-          "enum": ["text", "claude_code", "gemini_cli", "gemini_api"],
-          "default": "text",
-          "description": "Execution runtime. \"text\" runs Claude CLI in text-only mode (no tool access). \"claude_code\" spawns a Claude Code CLI subprocess with full tool access. \"gemini_cli\" runs Google Gemini via the gemini CLI. \"gemini_api\" uses the Google GenAI SDK directly (requires GEMINI_API_KEY)."
+          "enum": ["claude", "gemini", "codex"],
+          "description": "Execution runtime (required). \"claude\" uses Anthropic Claude CLI (auto-selects text-only or Claude Code mode based on mcp/flags). \"gemini\" uses Google Gemini CLI in headless mode. \"codex\" uses OpenAI Codex CLI in exec mode."
         },
         "model": {
           "type": ["string", "null"],

@@ -34,7 +34,7 @@ apiVersion: aqm/v0.1
 agents:
   - id: planner
     name: Planning Agent
-    runtime: text
+    runtime: claude
     system_prompt: |
       You are a versatile planner.
       Analyze the user's requirements and create a detailed execution plan.
@@ -48,7 +48,7 @@ agents:
 
   - id: executor
     name: Execution Agent
-    runtime: claude_code
+    runtime: claude
     system_prompt: |
       Execute the task based on the plan.
 
@@ -526,7 +526,7 @@ RULES:
    The first agent receives the user's task description via {{{{ input }}}}.
    Subsequent agents receive the previous agent's output (or payload) via {{{{ input }}}}.
 5. Use handoff conditions: always, on_approve, on_reject, auto
-6. Use runtime: text for planning/reviewing, claude_code for code execution
+6. Use runtime: claude, gemini, or codex. Claude auto-selects text vs code mode based on mcp/flags
 7. Add gates (type: llm or human) where quality checks make sense
 8. Add MCP servers where agents need external tools
 9. Use params ONLY for static project configuration (model name, project path, language, etc.) that stays the same across runs.
@@ -542,10 +542,10 @@ RULES:
    Use newlines or markdown headings inside the string to separate sections:
      payload: "## Feature Plan\n{{{{ output }}}}\n\n## Design Report\n{{{{ agents.design_auditor.output }}}}"
 11. Available Jinja2 template variables for payload: {{{{ output }}}}, {{{{ input }}}}, {{{{ reject_reason }}}}, {{{{ gate_result }}}}
-12. CRITICAL: Every pipeline MUST end with a code execution agent (runtime: claude_code) that implements the plan.
-    Planning/analysis agents (runtime: text) produce documents. The final agent MUST actually modify source code.
+12. CRITICAL: Every pipeline MUST end with a code execution agent (runtime: claude) that implements the plan.
+    Planning/analysis agents (runtime: claude without mcp) produce documents. The final agent MUST actually modify source code.
     The developer/executor agent should:
-    - Use runtime: claude_code
+    - Use runtime: claude
     - Have MCP filesystem server attached
     - Have a system_prompt that instructs it to implement the plan by editing actual files
     - Use claude_code_flags to restrict tools if needed (e.g. ["--allowedTools", "Edit,Write,Bash,Read"])
@@ -685,7 +685,7 @@ def _structural_validate(data: dict) -> list[str]:
         errors.append("(root): 'agents' must be a list")
         return errors
 
-    valid_runtimes = {"text", "claude_code"}
+    valid_runtimes = {"claude", "gemini", "codex"}
     valid_gate_types = {"llm", "human"}
 
     for i, agent in enumerate(agents):
@@ -696,8 +696,10 @@ def _structural_validate(data: dict) -> list[str]:
         if "id" not in agent:
             errors.append(f"{prefix}: 'id' is required")
 
-        runtime = agent.get("runtime", "text")
-        if runtime not in valid_runtimes:
+        runtime = agent.get("runtime")
+        if runtime is None:
+            errors.append(f"{prefix}: 'runtime' is required")
+        elif runtime not in valid_runtimes:
             errors.append(f"{prefix} -> runtime: '{runtime}' is not one of {valid_runtimes}")
 
         gate = agent.get("gate")
@@ -827,7 +829,7 @@ COMMON FIXES:
   CORRECT: payload: "key: {{{{ output }}}}"
 - Available payload variables: {{{{ output }}}}, {{{{ input }}}}, {{{{ reject_reason }}}}, {{{{ gate_result }}}}
 - "apiVersion" is required and must be "aqm/v0.1"
-- "runtime" must be "text" or "claude_code"
+- "runtime" is required and must be one of: "claude", "gemini", "codex"
 - "gate.type" must be "llm" or "human"
 - All handoffs need a "to" field (string)
 - No additional properties beyond what the schema allows
