@@ -164,6 +164,7 @@ class AgentDefinition(BaseModel):
 class AgentsConfig(BaseModel):
     """Top-level structure of agents.yaml."""
 
+    entry_point: Literal["first", "auto"] = "first"
     params: dict[str, ParamDefinition] = Field(default_factory=dict)
     imports: list[ImportSpec] = Field(default_factory=list)
     agents: list[AgentDefinition]
@@ -538,3 +539,72 @@ def get_first_agent_id(path: Path, cli_params: dict[str, str] | None = None) -> 
     if not agents:
         raise ValueError("No agents are defined in agents.yaml.")
     return next(iter(agents))
+
+
+def get_entry_point(path: Path) -> str:
+    """Read the ``entry_point`` setting from agents.yaml.
+
+    Returns ``"first"`` (default) or ``"auto"``.
+    """
+    with open(path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    return raw.get("entry_point", "first")
+
+
+def resolve_start_agent(
+    input_text: str,
+    agents: dict[str, AgentDefinition],
+) -> str:
+    """Use an LLM to pick the best starting agent for the given input.
+
+    Builds a brief prompt listing available agents and their roles,
+    then calls ``claude -p`` to select the most appropriate one.
+    Falls back to the first agent if the LLM response is unclear.
+    """
+    import logging
+    import shutil
+    import subprocess
+
+    logger = logging.getLogger(__name__)
+
+    # Build agent catalog for the LLM
+    catalog_lines: list[str] = []
+    for a in agents.values():
+        if a.type == "session":
+            desc = f"[session] participants: {a.participants}"
+        else:
+            desc = a.system_prompt[:150].replace("\n", " ").strip()
+        catalog_lines.append(f"- {a.id}: {desc}")
+
+    catalog = "\n".join(catalog_lines)
+    first_id = next(iter(agents))
+
+    prompt = (
+        f"Given this user task:\n\"{input_text}\"\n\n"
+        f"Available agents:\n{catalog}\n\n"
+        f"Reply with ONLY the agent id (one word) that should handle this task first. "
+        f"If unsure, reply: {first_id}"
+    )
+
+    if shutil.which("claude") is None:
+        logger.warning("[resolve_start_agent] claude CLI not found, using first agent")
+        return first_id
+
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--print"],
+            capture_output=True, text=True, timeout=30,
+        )
+        choice = result.stdout.strip().split()[0] if result.stdout.strip() else ""
+        # Validate the choice
+        if choice in agents:
+            logger.info("[resolve_start_agent] LLM selected: %s", choice)
+            return choice
+        logger.warning(
+            "[resolve_start_agent] LLM returned '%s' (not a valid agent), using first",
+            choice,
+        )
+    except Exception as e:
+        logger.warning("[resolve_start_agent] LLM call failed: %s", e)
+
+    return first_id
