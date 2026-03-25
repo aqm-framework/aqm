@@ -30,6 +30,7 @@ from aqm.queue.base import AbstractQueue
 from aqm.runtime.text import TextRuntime
 from aqm.runtime.base import AbstractRuntime
 from aqm.runtime.claude_code import ClaudeCodeRuntime
+from aqm.runtime.gemini import GeminiCLIRuntime, GeminiAPIRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,14 @@ class Pipeline:
                 self._runtimes["text"] = TextRuntime(self.project_root)
             elif agent.runtime == "claude_code":
                 self._runtimes["claude_code"] = ClaudeCodeRuntime(
+                    self.project_root
+                )
+            elif agent.runtime == "gemini_cli":
+                self._runtimes["gemini_cli"] = GeminiCLIRuntime(
+                    self.project_root
+                )
+            elif agent.runtime == "gemini_api":
+                self._runtimes["gemini_api"] = GeminiAPIRuntime(
                     self.project_root
                 )
             else:
