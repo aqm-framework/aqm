@@ -27,9 +27,11 @@ from aqm.core.gate import (
 from aqm.core.project import get_tasks_dir
 from aqm.core.task import StageRecord, Task, TaskStatus
 from aqm.queue.base import AbstractQueue
-from aqm.runtime.text import TextRuntime
 from aqm.runtime.base import AbstractRuntime
+from aqm.runtime.text import TextRuntime
 from aqm.runtime.claude_code import ClaudeCodeRuntime
+from aqm.runtime.gemini import GeminiCLIRuntime
+from aqm.runtime.codex import CodexCLIRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +78,33 @@ class Pipeline:
         return self._anthropic_client
 
     def _get_runtime(self, agent: AgentDefinition) -> AbstractRuntime:
-        """Return a runtime instance matching the agent's runtime type."""
-        if agent.runtime not in self._runtimes:
-            if agent.runtime == "text":
-                self._runtimes["text"] = TextRuntime(self.project_root)
-            elif agent.runtime == "claude_code":
-                self._runtimes["claude_code"] = ClaudeCodeRuntime(
-                    self.project_root
-                )
+        """Return a runtime instance matching the agent's runtime type.
+
+        For ``claude`` runtime, auto-selects between text-only and Claude Code
+        mode: if the agent has ``mcp`` servers or ``claude_code_flags``, it
+        runs in full Claude Code mode (tool access); otherwise text-only.
+        """
+        rt = agent.runtime
+
+        # Claude auto-detect: use Claude Code mode if MCP or flags are set
+        if rt == "claude":
+            needs_tools = bool(agent.mcp) or bool(agent.claude_code_flags)
+            cache_key = "claude_code" if needs_tools else "claude_text"
+            if cache_key not in self._runtimes:
+                if needs_tools:
+                    self._runtimes[cache_key] = ClaudeCodeRuntime(self.project_root)
+                else:
+                    self._runtimes[cache_key] = TextRuntime(self.project_root)
+            return self._runtimes[cache_key]
+
+        if rt not in self._runtimes:
+            if rt == "gemini":
+                self._runtimes[rt] = GeminiCLIRuntime(self.project_root)
+            elif rt == "codex":
+                self._runtimes[rt] = CodexCLIRuntime(self.project_root)
             else:
-                raise ValueError(f"Unknown runtime: {agent.runtime}")
-        return self._runtimes[agent.runtime]
+                raise ValueError(f"Unknown runtime: {rt}")
+        return self._runtimes[rt]
 
     def _get_gate(self, agent: AgentDefinition) -> Optional[AbstractGate]:
         """Return a gate instance matching the agent's gate configuration."""

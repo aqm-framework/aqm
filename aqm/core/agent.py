@@ -96,7 +96,7 @@ class AgentDefinition(BaseModel):
 
     id: str
     name: str = ""
-    runtime: Literal["text", "claude_code"] = "text"
+    runtime: Literal["claude", "gemini", "codex"]
     model: Optional[str] = None
     system_prompt: str = ""
     handoffs: list[Handoff] = Field(default_factory=list)
