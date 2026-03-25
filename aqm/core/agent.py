@@ -132,6 +132,7 @@ class AgentDefinition(BaseModel):
     gate: Optional[GateConfig] = None
     mcp: list[MCPServerConfig] = Field(default_factory=list)
     claude_code_flags: Optional[list[str]] = None
+    context_strategy: Literal["own", "shared", "both"] = "both"
     abstract: bool = False
     extends: Optional[str] = None
 
