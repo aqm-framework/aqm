@@ -4,7 +4,7 @@
   "title": "agents.yaml",
   "description": "Schema for aqm (aqm) pipeline configuration files. Defines agents, their handoffs, gates, MCP servers, and parameterization.",
   "type": "object",
-  "required": ["apiVersion", "agents"],
+  "required": ["agents"],
   "additionalProperties": false,
   "properties": {
     "apiVersion": {
@@ -91,9 +91,56 @@
         }
       }
     },
+    "ConsensusConfig": {
+      "type": "object",
+      "description": "Consensus detection settings for session nodes.",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["vote", "moderator_decides"],
+          "default": "vote",
+          "description": "How consensus is detected. \"vote\": each agent says the keyword to agree. \"moderator_decides\": only the moderator/summary_agent can declare consensus."
+        },
+        "keyword": {
+          "type": "string",
+          "default": "VOTE: AGREE",
+          "description": "Keyword agents use to signal agreement. Case-insensitive matching. E.g. \"VOTE: AGREE\", \"I AGREE\", \"CONSENSUS_REACHED\"."
+        },
+        "require": {
+          "type": "string",
+          "enum": ["all", "majority"],
+          "default": "all",
+          "description": "How many agents must agree. \"all\": every participant. \"majority\": more than half."
+        },
+        "require_chunks_done": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, consensus is only reached when all chunks are marked done AND the vote threshold is met."
+        }
+      }
+    },
+    "ChunksConfig": {
+      "type": "object",
+      "description": "Chunk decomposition settings for session nodes. Breaks tasks into trackable work units that agents can add, complete, or remove via output directives.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether chunk tracking is active."
+        },
+        "initial": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Seed chunks created when the session starts. E.g. [\"Set up project structure\", \"Implement auth flow\"]."
+        }
+      }
+    },
     "AgentDefinition": {
       "type": "object",
-      "description": "Complete definition of a single agent in the pipeline.",
+      "description": "Definition of a single agent or session node. When type is \"agent\" (default), requires a runtime. When type is \"session\", orchestrates a conversational discussion among participant agents.",
       "required": ["id"],
       "additionalProperties": false,
       "properties": {
@@ -107,11 +154,17 @@
           "default": "",
           "description": "Human-readable display name. If omitted, auto-generated from id by replacing underscores/hyphens with spaces and title-casing. E.g. \"Code Reviewer\"."
         },
-        "runtime": {
+        "type": {
           "type": "string",
-          "enum": ["text", "claude_code"],
-          "default": "text",
-          "description": "Execution runtime. \"text\" runs Claude CLI in text-only mode (no tool access). \"claude_code\" spawns a Claude Code CLI subprocess with full tool access."
+          "enum": ["agent", "session"],
+          "default": "agent",
+          "description": "Node type. \"agent\" (default) is a regular LLM agent. \"session\" is a conversational group where multiple agents discuss in rounds until consensus."
+        },
+        "runtime": {
+          "type": ["string", "null"],
+          "enum": ["claude", "gemini", "codex", null],
+          "default": null,
+          "description": "Execution runtime. Required for type \"agent\", not used for type \"session\". \"claude\" uses Anthropic Claude CLI. \"gemini\" uses Google Gemini CLI. \"codex\" uses OpenAI Codex CLI."
         },
         "model": {
           "type": ["string", "null"],
@@ -121,7 +174,7 @@
         "system_prompt": {
           "type": "string",
           "default": "",
-          "description": "System prompt passed to the model. Supports ${{ params.X }} substitution. E.g. \"You are a senior code reviewer. Focus on security and performance.\""
+          "description": "System prompt passed to the model. Supports ${{ params.X }} substitution and {{ transcript }} for session participants."
         },
         "handoffs": {
           "type": "array",
@@ -157,6 +210,12 @@
           "description": "Additional CLI flags passed to Claude Code when runtime is \"claude_code\". E.g. [\"--allowedTools\", \"Edit,Read,Bash\"].",
           "items": { "type": "string" }
         },
+        "context_strategy": {
+          "type": "string",
+          "enum": ["own", "shared", "both"],
+          "default": "both",
+          "description": "What context to inject into {{ context }}. 'own': agent's private notes only (token-efficient). 'shared': full shared context.md. 'both': shared + agent's notes (default, backward-compatible)."
+        },
         "abstract": {
           "type": "boolean",
           "default": false,
@@ -166,6 +225,45 @@
           "type": ["string", "null"],
           "default": null,
           "description": "ID of a parent agent to inherit fields from via shallow merge. Child fields override parent fields. The parent can be abstract. E.g. \"base_reviewer\"."
+        },
+        "participants": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "Session only: list of agent IDs that participate in the conversation. E.g. [\"architect\", \"reviewer\", \"security\"]."
+        },
+        "turn_order": {
+          "type": "string",
+          "enum": ["round_robin", "moderator"],
+          "default": "round_robin",
+          "description": "Session only: how turns are ordered. \"round_robin\" cycles through participants. \"moderator\" puts summary_agent first each round."
+        },
+        "max_rounds": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 1,
+          "description": "Session only: maximum number of discussion rounds before terminating."
+        },
+        "consensus": {
+          "oneOf": [
+            { "$ref": "#/definitions/ConsensusConfig" },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Session only: how consensus is detected among participants."
+        },
+        "summary_agent": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Session only: agent ID that produces the final summary after consensus. Also serves as moderator when turn_order is \"moderator\"."
+        },
+        "chunks": {
+          "oneOf": [
+            { "$ref": "#/definitions/ChunksConfig" },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Session only: chunk decomposition config. Agents use CHUNK_ADD/DONE/REMOVE directives. Use with consensus.require_chunks_done for completion gating."
         }
       }
     },
