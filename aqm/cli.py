@@ -909,6 +909,59 @@ def reject(task_id: str, reason: str) -> None:
         console.print(f"[red]Error:[/] {e}")
 
 
+# ── human-input ────────────────────────────────────────────────────────
+
+
+@cli.command("human-input")
+@click.argument("task_id")
+@click.argument("response")
+def human_input_cmd(task_id: str, response: str) -> None:
+    """Respond to an agent's human input request."""
+    root = _require_project()
+    queue = _get_queue(root)
+    task = queue.get(task_id)
+    if not task:
+        console.print(f"[red]Error:[/] Task '{task_id}' not found.")
+        return
+    if task.status != TaskStatus.awaiting_human_input:
+        console.print(
+            f"[yellow]Task {task_id} is not awaiting human input "
+            f"(status: {task.status.value}).[/]"
+        )
+        return
+
+    pipe_name = task.metadata.get("pipeline") if task else None
+    agents = load_agents(get_agents_yaml_path(root, pipe_name))
+
+    from aqm.core.config import load_project_config
+    from aqm.core.pipeline import Pipeline
+
+    pipeline = Pipeline(agents, queue, root, config=load_project_config(root))
+
+    console.print(f"[cyan]↩ Submitting response[/] for {task_id}...")
+    try:
+        result = pipeline.resume_human_input(task_id, response)
+        if result.status == TaskStatus.awaiting_human_input:
+            pending = result.metadata.get("_human_input_pending", {})
+            questions = pending.get("questions", [])
+            console.print(f"\n[cyan]Agent needs more input:[/]")
+            for q in questions:
+                console.print(f"  {q}")
+            console.print(
+                f"\n  Respond with: aqm human-input {task_id} \"your answer\""
+            )
+        elif result.status == TaskStatus.awaiting_gate:
+            console.print(
+                f"\n⏸ Awaiting gate {task_id}\n"
+                f"  Proceed with 'aqm approve {task_id}' or "
+                f"'aqm reject {task_id} -r \"reason\"'."
+            )
+        else:
+            console.print(f"[green]✓ {result.status.value.capitalize()}[/] {task_id}")
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
+
+
 # ── cancel ─────────────────────────────────────────────────────────────
 
 

@@ -264,6 +264,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
         )
 
         output_parts: list[str] = []
+        got_stream_events = False  # Track if we received deltas
         try:
             while True:
                 line = proc.stdout.readline()
@@ -286,6 +287,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
                 # Token-level streaming via --include-partial-messages
                 if etype == "stream_event":
+                    got_stream_events = True
                     inner = event.get("event", {})
                     inner_type = inner.get("type", "")
                     if inner_type == "content_block_delta":
@@ -307,8 +309,9 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                 except Exception:
                                     pass
 
-                # Full message fallback (no --include-partial-messages)
-                elif etype == "assistant":
+                # Full message fallback — only used when NO stream_events
+                # were received (i.e. --include-partial-messages not active)
+                elif etype == "assistant" and not got_stream_events:
                     msg = event.get("message", {})
                     for block in msg.get("content", []):
                         btype = block.get("type", "")
