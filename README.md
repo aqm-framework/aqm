@@ -285,6 +285,43 @@ agents:
 
 ## agents.yaml Reference
 
+### Entry Point (Auto-Routing)
+
+Control which agent receives the user's input first:
+
+```yaml
+entry_point: auto    # LLM picks the best agent based on user input
+# entry_point: first  # (default) Always start with the first agent in the list
+```
+
+| Value | Behavior |
+|---|---|
+| `first` (default) | First agent in the YAML list receives the task. Backward-compatible. |
+| `auto` | LLM analyzes the user input against all agents and picks the most appropriate one. |
+
+**Example — Multi-domain pipeline with auto-routing:**
+```yaml
+entry_point: auto
+
+agents:
+  - id: code_reviewer
+    runtime: claude
+    system_prompt: "Review code: {{ input }}"
+  - id: bug_fixer
+    runtime: claude
+    system_prompt: "Fix bug: {{ input }}"
+  - id: feature_planner
+    runtime: claude
+    system_prompt: "Plan feature: {{ input }}"
+```
+
+```bash
+aqm run "Review PR #42"          # → auto-selects code_reviewer
+aqm run "Fix login crash"        # → auto-selects bug_fixer
+aqm run "Add dark mode"          # → auto-selects feature_planner
+aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
+```
+
 ### Agent Definition
 
 | Field | Type | Default | Description |
@@ -356,6 +393,7 @@ aqm/
 | Context optimization | ❌ | ❌ | ❌ | **Per-agent context strategy** |
 | Multi-LLM | Manual | Limited | ❌ | **Claude + Gemini + Codex** |
 | Approve/Reject gate | Interrupt | ❌ | ❌ | **First-class** |
+| Auto entry routing | ❌ | ❌ | ❌ | **LLM-based `entry_point: auto`** |
 | Fan-out parallel | Manual | ❌ | ❌ | **Declarative** |
 | File-based context | ❌ | ❌ | ❌ | **context.md + agent files** |
 | Web dashboard | ❌ | Paid | ❌ | **Built-in** |
