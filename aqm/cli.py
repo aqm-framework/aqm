@@ -619,7 +619,19 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
         console.print("[red]Error:[/] No agents defined in pipeline. Run [bold]aqm init[/] first.")
         sys.exit(1)
 
-    start_agent = agent or next(iter(agents))
+    if agent:
+        start_agent = agent
+    else:
+        # Check entry_point config
+        from aqm.core.agent import get_entry_point, resolve_start_agent
+        entry_point = get_entry_point(get_agents_yaml_path(root, pipeline_name))
+        if entry_point == "auto":
+            with console.status("[bold cyan]Selecting best agent...[/]", spinner="dots"):
+                start_agent = resolve_start_agent(input_text, agents)
+            console.print(f"  [dim]Auto-selected agent: {start_agent}[/]")
+        else:
+            start_agent = next(iter(agents))
+
     if start_agent not in agents:
         console.print(f"[red]Error:[/] Agent '{start_agent}' not found.")
         console.print(f"  Available: {', '.join(agents.keys())}")

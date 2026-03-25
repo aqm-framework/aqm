@@ -226,7 +226,16 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         if not agents:
             raise HTTPException(500, "No agents defined in agents.yaml")
 
-        start_agent = req.agent_id or next(iter(agents))
+        if req.agent_id:
+            start_agent = req.agent_id
+        else:
+            from aqm.core.agent import get_entry_point, resolve_start_agent
+            entry_point = get_entry_point(get_agents_yaml_path(project_root, req.pipeline))
+            if entry_point == "auto":
+                start_agent = resolve_start_agent(req.description, agents)
+            else:
+                start_agent = next(iter(agents))
+
         if start_agent not in agents:
             raise HTTPException(400, f"Agent '{start_agent}' not found")
 
