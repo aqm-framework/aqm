@@ -15,7 +15,10 @@ from aqm.queue.file import FileQueue
 from aqm.runtime.gemini import (
     GeminiCLIRuntime,
     _DEFAULT_GEMINI_MODEL,
+    _TEMP_FILES_TO_CLEANUP,
     _check_gemini_cli_available,
+    _cleanup_temp_files,
+    _write_temp_file,
 )
 from aqm.runtime.codex import (
     CodexCLIRuntime,
@@ -513,6 +516,45 @@ class TestPipelineRuntimeResolution:
         assert result.status == TaskStatus.completed
         assert result.stages[0].output_text == "Plan completed."
 
+    def test_claude_cache_key_isolation(self, tmp_project):
+        """claude_text and claude_code should be cached separately."""
+        from aqm.runtime.text import TextRuntime
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        agents = {
+            "text_agent": AgentDefinition(
+                id="text_agent", runtime="claude", system_prompt="{{ input }}",
+            ),
+            "code_agent": AgentDefinition(
+                id="code_agent", runtime="claude", system_prompt="{{ input }}",
+                mcp=[{"server": "github"}],
+            ),
+        }
+        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
+        pipeline = Pipeline(agents, queue, tmp_project)
+
+        rt_text = pipeline._get_runtime(agents["text_agent"])
+        rt_code = pipeline._get_runtime(agents["code_agent"])
+        assert isinstance(rt_text, TextRuntime)
+        assert isinstance(rt_code, ClaudeCodeRuntime)
+        assert rt_text is not rt_code
+
+    def test_claude_empty_mcp_list_uses_text(self, tmp_project):
+        """Empty mcp=[] should still use text mode (falsy)."""
+        from aqm.runtime.text import TextRuntime
+
+        agents = {
+            "test": AgentDefinition(
+                id="test", runtime="claude", system_prompt="{{ input }}",
+                mcp=[],
+            ),
+        }
+        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
+        pipeline = Pipeline(agents, queue, tmp_project)
+
+        runtime = pipeline._get_runtime(agents["test"])
+        assert isinstance(runtime, TextRuntime)
+
     def test_full_pipeline_with_codex(self, tmp_project):
         agents = {
             "coder": AgentDefinition(
@@ -534,3 +576,72 @@ class TestPipelineRuntimeResolution:
         result = pipeline.run_task(task, "coder")
         assert result.status == TaskStatus.completed
         assert result.stages[0].output_text == "Code written."
+
+
+# ── Temp file helpers ─────────────────────────────────────────────────
+
+
+class TestTempFileHelpers:
+    def test_write_temp_file_creates_file(self):
+        path = _write_temp_file("hello world", prefix="aqm_test_", suffix=".md")
+        try:
+            assert path.exists()
+            assert path.read_text(encoding="utf-8") == "hello world"
+            assert path in _TEMP_FILES_TO_CLEANUP
+        finally:
+            path.unlink(missing_ok=True)
+            if path in _TEMP_FILES_TO_CLEANUP:
+                _TEMP_FILES_TO_CLEANUP.remove(path)
+
+    def test_write_temp_file_unicode(self):
+        path = _write_temp_file("한글 테스트 🎉", prefix="aqm_uni_", suffix=".md")
+        try:
+            assert path.read_text(encoding="utf-8") == "한글 테스트 🎉"
+        finally:
+            path.unlink(missing_ok=True)
+            if path in _TEMP_FILES_TO_CLEANUP:
+                _TEMP_FILES_TO_CLEANUP.remove(path)
+
+    def test_cleanup_temp_files(self, tmp_path):
+        # Create a real temp file and register it
+        test_file = tmp_path / "cleanup_test.md"
+        test_file.write_text("to be cleaned")
+        _TEMP_FILES_TO_CLEANUP.append(test_file)
+
+        _cleanup_temp_files()
+
+        assert not test_file.exists()
+        # Cleanup the list entry
+        if test_file in _TEMP_FILES_TO_CLEANUP:
+            _TEMP_FILES_TO_CLEANUP.remove(test_file)
+
+    def test_cleanup_missing_file_no_error(self):
+        """Cleanup should not raise if file already deleted."""
+        fake_path = Path("/tmp/aqm_nonexistent_cleanup_test.md")
+        _TEMP_FILES_TO_CLEANUP.append(fake_path)
+
+        _cleanup_temp_files()  # Should not raise
+
+        if fake_path in _TEMP_FILES_TO_CLEANUP:
+            _TEMP_FILES_TO_CLEANUP.remove(fake_path)
+
+
+# ── Runtime init ──────────────────────────────────────────────────────
+
+
+class TestRuntimeInit:
+    def test_gemini_init_with_project_root(self, tmp_path):
+        runtime = GeminiCLIRuntime(project_root=tmp_path)
+        assert runtime._project_root == tmp_path
+
+    def test_gemini_init_without_project_root(self):
+        runtime = GeminiCLIRuntime()
+        assert runtime._project_root is None
+
+    def test_codex_init_with_project_root(self, tmp_path):
+        runtime = CodexCLIRuntime(project_root=tmp_path)
+        assert runtime._project_root == tmp_path
+
+    def test_codex_init_without_project_root_uses_cwd(self):
+        runtime = CodexCLIRuntime()
+        assert runtime._project_root == Path.cwd()
