@@ -258,9 +258,9 @@ class TestContextFile:
         assert "stage 1" in content
         assert "stage 2" in content
 
-    def test_stage_file_created(self, tmp_path):
+    def test_stage_appended_to_context(self, tmp_path):
         cf = ContextFile(tmp_path / "test-task")
-        stage_file = cf.append_stage(
+        result_path = cf.append_stage(
             stage_number=1,
             agent_id="agent_x",
             task_name="test",
@@ -268,8 +268,10 @@ class TestContextFile:
             input_text="in",
             output_text="out",
         )
-        assert stage_file.exists()
-        assert "agent_x" in stage_file.name
+        assert result_path.exists()
+        assert result_path.name == "context.md"
+        content = cf.read()
+        assert "agent_x" in content
 
     def test_save_payload(self, tmp_path):
         cf = ContextFile(tmp_path / "test-task")

@@ -447,9 +447,9 @@ class Pipeline:
                             f"--- User Input ---\n{human_response}"
                         )
 
-            # Build prompt (respect agent's context_strategy)
+            # Build prompt (respect agent's context_strategy + context_window)
             context_text = ctx_file.read_for_strategy(
-                agent.id, agent.context_strategy,
+                agent.id, agent.context_strategy, agent.context_window,
             )
             prompt = build_prompt(
                 system_prompt_template=agent.system_prompt,
@@ -921,7 +921,7 @@ class Pipeline:
                     system_prompt_template=agent.system_prompt,
                     input_text=input_text,
                     context=ctx_file.read_for_strategy(
-                        agent.id, agent.context_strategy,
+                        agent.id, agent.context_strategy, agent.context_window,
                     ),
                     transcript=transcript,
                     chunks=chunk_mgr.summary() if has_chunks else "",
@@ -1037,6 +1037,7 @@ class Pipeline:
                         input_text=input_text,
                         context=ctx_file.read_for_strategy(
                             summary_agent.id, summary_agent.context_strategy,
+                            summary_agent.context_window,
                         ),
                         transcript=transcript,
                         chunks=chunk_mgr.summary() if has_chunks else "",

@@ -36,9 +36,9 @@ class TestPerAgentContext:
             output_text="implemented auth flow",
         )
         content = cf.read_agent_context("dev")
-        assert "dev" in content
         assert "implemented auth flow" in content
-        assert "build login" in content
+        # agent context now stores only output (no input duplication)
+        assert "build login" not in content
 
     def test_append_multiple_stages(self, tmp_path):
         cf = ContextFile(tmp_path / "task-1")
@@ -323,6 +323,7 @@ class TestPipelineContextStrategy:
             ),
             "second": AgentDefinition(
                 id="second", runtime="claude",
+                context_window=0,  # 0 = read full context (backward compat)
                 system_prompt="{{ context }}",
                 # No context_strategy set → defaults to "both"
             ),
@@ -341,3 +342,97 @@ class TestPipelineContextStrategy:
 
         second_prompt = mock_rt.run.call_args_list[1][0][0]
         assert "first output" in second_prompt
+
+
+# ── Smart context reading ────────────────────────────────────────────
+
+
+class TestReadSmart:
+    def _build_context(self, cf, n_stages):
+        """Append n stages to context.md."""
+        for i in range(1, n_stages + 1):
+            cf.append_stage(
+                stage_number=i,
+                agent_id=f"agent_{i}",
+                task_name="task",
+                status="completed",
+                input_text=f"input for stage {i}",
+                output_text=f"output for stage {i} " + "x" * 200,
+            )
+
+    def test_read_smart_within_window(self, tmp_path):
+        cf = ContextFile(tmp_path / "task")
+        self._build_context(cf, 2)
+        result = cf.read_smart(context_window=3)
+        # 2 stages <= window of 3 → full content
+        assert "input for stage 1" in result
+        assert "output for stage 2" in result
+
+    def test_read_smart_summarizes_old(self, tmp_path):
+        cf = ContextFile(tmp_path / "task")
+        self._build_context(cf, 5)
+        result = cf.read_smart(context_window=2)
+        # Stages 1-3 should be summarized, 4-5 in full
+        assert "Pipeline History (summarized)" in result
+        assert "Recent Stages (full)" in result
+        # Old stages: no full input/output
+        assert "input for stage 1" not in result
+        # Recent stages: full content
+        assert "input for stage 4" in result
+        assert "output for stage 5" in result
+
+    def test_read_smart_zero_window_returns_full(self, tmp_path):
+        cf = ContextFile(tmp_path / "task")
+        self._build_context(cf, 5)
+        full = cf.read()
+        smart = cf.read_smart(context_window=0)
+        assert smart == full
+
+    def test_read_smart_empty(self, tmp_path):
+        cf = ContextFile(tmp_path / "task")
+        assert cf.read_smart(context_window=3) == ""
+
+    def test_read_smart_reduces_size(self, tmp_path):
+        cf = ContextFile(tmp_path / "task")
+        self._build_context(cf, 10)
+        full = cf.read()
+        smart = cf.read_smart(context_window=3)
+        # Smart should be significantly smaller
+        assert len(smart) < len(full) * 0.7
+        # But still has recent content
+        assert "output for stage 10" in smart
+        assert "output for stage 9" in smart
+
+    def test_read_for_strategy_uses_window(self, tmp_path):
+        cf = ContextFile(tmp_path / "task")
+        self._build_context(cf, 6)
+        result = cf.read_for_strategy("agent_6", "shared", context_window=2)
+        assert "Pipeline History (summarized)" in result
+        assert "output for stage 6" in result
+
+    def test_context_window_default(self):
+        a = AgentDefinition(id="test", runtime="claude")
+        assert a.context_window == 3
+
+    def test_context_window_yaml(self, tmp_project):
+        yaml_content = {
+            "agents": [
+                {
+                    "id": "a",
+                    "runtime": "claude",
+                    "context_window": 5,
+                    "system_prompt": "{{ input }}",
+                },
+                {
+                    "id": "b",
+                    "runtime": "claude",
+                    "context_window": 0,
+                    "system_prompt": "{{ input }}",
+                },
+            ]
+        }
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
+        yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
+        agents = load_agents(yaml_path)
+        assert agents["a"].context_window == 5
+        assert agents["b"].context_window == 0
