@@ -42,7 +42,7 @@ aqm serve                              # 웹 대시보드 (localhost:8000)
 | `gemini` | Google | `npm i -g @google/gemini-cli` |
 | `codex` | OpenAI | `npm i -g @openai/codex` |
 
-Claude는 에이전트 설정에 따라 **Code 모드** (MCP/도구 사용) vs **텍스트 전용 모드**를 자동 선택합니다.
+Claude는 항상 **Code 모드**로 실행 — MCP 서버와 도구는 설정 시 사용 가능합니다.
 
 ```yaml
 agents:
@@ -461,8 +461,7 @@ gate:
     당신은 품질 게이트 평가자입니다...
 
 timeouts:                     # 런타임 서브프로세스 타임아웃 (초)
-  text: 300
-  claude_code: 600
+  claude: 600
   gemini: 300
   codex: 600
 
@@ -480,8 +479,7 @@ context:
 | `gate.model` | `string` | `"claude-sonnet-4-20250514"` | LLM 게이트 평가 기본 모델 |
 | `gate.timeout` | `int` | `120` | 게이트 서브프로세스 타임아웃 (초) |
 | `gate.system_prompt` | `string` | 내장 프롬프트 | 커스텀 게이트 시스템 프롬프트 |
-| `timeouts.text` | `int` | `300` | Claude 텍스트 전용 런타임 타임아웃 |
-| `timeouts.claude_code` | `int` | `600` | Claude Code 런타임 타임아웃 |
+| `timeouts.claude` | `int` | `600` | Claude 런타임 타임아웃 |
 | `timeouts.gemini` | `int` | `300` | Gemini CLI 런타임 타임아웃 |
 | `timeouts.codex` | `int` | `600` | Codex CLI 런타임 타임아웃 |
 | `server.host` | `string` | `"127.0.0.1"` | 웹 대시보드 호스트 |
@@ -505,7 +503,7 @@ aqm/
 │   ├── sqlite.py         # SQLiteQueue (프로덕션)
 │   └── file.py           # FileQueue (테스트용)
 ├── runtime/
-│   ├── text.py           # Claude 텍스트 전용 (토큰 스트리밍)
+│   ├── text.py           # Claude 텍스트 전용 (레거시)
 │   ├── claude_code.py    # Claude Code (MCP 포함, 토큰 스트리밍)
 │   ├── gemini.py         # Gemini CLI
 │   └── codex.py          # Codex CLI
