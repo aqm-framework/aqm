@@ -10,6 +10,8 @@ from aqm.core.task import Task
 
 # Callback type for streaming output lines
 OutputCallback = Optional[Callable[[str], None]]
+# Callback type for streaming thinking lines
+ThinkingCallback = Optional[Callable[[str], None]]
 
 
 class AbstractRuntime(ABC):
@@ -25,6 +27,7 @@ class AbstractRuntime(ABC):
         agent: AgentDefinition,
         task: Task,
         on_output: OutputCallback = None,
+        on_thinking: ThinkingCallback = None,
     ) -> str:
         """Run the agent and return text output.
 
@@ -34,5 +37,7 @@ class AbstractRuntime(ABC):
             task: Current task.
             on_output: Optional callback invoked with each line of output
                        as it streams from the subprocess.
+            on_thinking: Optional callback invoked with each thinking line
+                         as it streams from the subprocess.
         """
         ...

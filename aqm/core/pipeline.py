@@ -262,6 +262,7 @@ class Pipeline:
         on_stage_complete=None,
         on_stage_start=None,
         on_output=None,
+        on_thinking=None,
     ) -> Task:
         """Run a task through the pipeline.
 
@@ -272,6 +273,7 @@ class Pipeline:
             on_stage_complete: Stage completion callback (task, stage_record)
             on_stage_start: Stage start callback (task, agent_id, stage_number)
             on_output: Output line callback (line_text) for streaming
+            on_thinking: Thinking line callback (line_text) for streaming thinking
 
         Returns:
             The Task in completed (or gate-awaiting) state
@@ -316,6 +318,7 @@ class Pipeline:
                         on_turn_start=on_stage_start,
                         on_turn_complete=on_stage_complete,
                         on_output=on_output,
+                        on_thinking=on_thinking,
                     )
                     # Record the session as a single stage
                     stage = StageRecord(
@@ -391,6 +394,7 @@ class Pipeline:
                             on_stage_complete=on_stage_complete,
                             on_stage_start=on_stage_start,
                             on_output=on_output,
+                            on_thinking=on_thinking,
                         )
 
                 next_agent_id, next_payload = handoff_targets[0]
@@ -430,7 +434,7 @@ class Pipeline:
 
             try:
                 runtime = self._get_runtime(agent)
-                output = runtime.run(prompt, agent, task, on_output=on_output)
+                output = runtime.run(prompt, agent, task, on_output=on_output, on_thinking=on_thinking)
                 stage.output_text = output
                 stage.finished_at = datetime.now(timezone.utc)
             except Exception as e:
@@ -546,6 +550,7 @@ class Pipeline:
                         on_stage_complete=on_stage_complete,
                         on_stage_start=on_stage_start,
                         on_output=on_output,
+                        on_thinking=on_thinking,
                     )
 
             next_agent_id, next_payload = handoff_targets[0]
@@ -572,6 +577,7 @@ class Pipeline:
         on_stage_complete=None,
         on_stage_start=None,
         on_output=None,
+        on_thinking=None,
     ) -> Task:
         """Resume the pipeline after a human gate.
 
@@ -631,6 +637,7 @@ class Pipeline:
             on_stage_complete=on_stage_complete,
             on_stage_start=on_stage_start,
             on_output=on_output,
+            on_thinking=on_thinking,
         )
 
     # ------------------------------------------------------------------
@@ -646,6 +653,7 @@ class Pipeline:
         on_turn_start=None,
         on_turn_complete=None,
         on_output=None,
+        on_thinking=None,
     ) -> str:
         """Run a conversational session among participant agents.
 
@@ -728,7 +736,7 @@ class Pipeline:
 
                 try:
                     runtime = self._get_runtime(agent)
-                    message = runtime.run(prompt, agent, task, on_output=on_output)
+                    message = runtime.run(prompt, agent, task, on_output=on_output, on_thinking=on_thinking)
                 except Exception as turn_err:
                     # Record failed turn but continue session
                     message = f"[ERROR: agent '{agent.id}' failed: {turn_err}]"
@@ -838,7 +846,7 @@ class Pipeline:
                     runtime = self._get_runtime(summary_agent)
                     final_output = runtime.run(
                         summary_prompt, summary_agent, task,
-                        on_output=on_output,
+                        on_output=on_output, on_thinking=on_thinking,
                     )
 
                 agreed_by = [k for k, v in agreements.items() if v]

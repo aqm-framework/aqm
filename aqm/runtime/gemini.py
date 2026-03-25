@@ -21,7 +21,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,7 @@ class GeminiCLIRuntime(AbstractRuntime):
         agent: AgentDefinition,
         task: Task,
         on_output: OutputCallback = None,
+        on_thinking: ThinkingCallback = None,
     ) -> str:
         _check_gemini_cli_available()
 
