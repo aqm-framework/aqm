@@ -40,16 +40,33 @@ class AbstractGate(ABC):
 class LLMGate(AbstractGate):
     """Automatic evaluation via the Claude CLI."""
 
-    EVAL_SYSTEM_PROMPT = """\
-You are a quality gate evaluator. Evaluate the agent output below.
+    # Fallback when no project config is provided
+    _DEFAULT_SYSTEM_PROMPT = (
+        "You are a quality gate evaluator. Evaluate the agent output below.\n\n"
+        "You must respond only in the following JSON format:\n"
+        '{"decision": "approved" or "rejected", "reason": "basis for the decision"}'
+    )
 
-You must respond only in the following JSON format:
-{"decision": "approved" or "rejected", "reason": "basis for the decision"}
-"""
-
-    def __init__(self, config: GateConfig, anthropic_client=None) -> None:
+    def __init__(self, config: GateConfig, anthropic_client=None, gate_defaults=None) -> None:
         self.config = config
-        # anthropic_client kept for backward compatibility but not used
+        self._defaults = gate_defaults  # ProjectConfig.gate (GateDefaults)
+
+    def _get_system_prompt(self) -> str:
+        if self._defaults:
+            return self._defaults.system_prompt
+        return self._DEFAULT_SYSTEM_PROMPT
+
+    def _get_model(self) -> str:
+        if self.config.model:
+            return self.config.model
+        if self._defaults:
+            return self._defaults.model
+        return "claude-sonnet-4-20250514"
+
+    def _get_timeout(self) -> int:
+        if self._defaults:
+            return self._defaults.timeout
+        return 120
 
     def evaluate(self, task: Task, agent_output: str) -> GateResult:
         extra_prompt = ""
@@ -64,9 +81,8 @@ You must respond only in the following JSON format:
         if extra_prompt:
             user_message = f"{extra_prompt}\n\n{user_message}"
 
-        model = self.config.model or "claude-sonnet-4-20250514"
+        model = self._get_model()
 
-        # Use Claude CLI instead of Anthropic SDK
         if shutil.which("claude") is None:
             raise FileNotFoundError(
                 "The 'claude' CLI was not found on PATH. "
@@ -76,7 +92,7 @@ You must respond only in the following JSON format:
 
         cmd = [
             "claude", "-p", user_message, "--print",
-            "--system-prompt", self.EVAL_SYSTEM_PROMPT,
+            "--system-prompt", self._get_system_prompt(),
             "--model", model,
         ]
 
@@ -88,7 +104,7 @@ You must respond only in the following JSON format:
             cmd,
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=self._get_timeout(),
         )
 
         if result.returncode != 0:

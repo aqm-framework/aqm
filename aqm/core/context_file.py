@@ -17,10 +17,11 @@ class ContextFile:
     and is injected into agent prompts via the ``{{ transcript }}`` variable.
     """
 
-    def __init__(self, task_dir: Path) -> None:
+    def __init__(self, task_dir: Path, preview_max_chars: int = 120) -> None:
         self.task_dir = Path(task_dir)
         self.context_path = self.task_dir / "context.md"
         self.transcript_path = self.task_dir / "transcript.md"
+        self._preview_max_chars = preview_max_chars
 
     def ensure_dir(self) -> None:
         self.task_dir.mkdir(parents=True, exist_ok=True)
@@ -144,7 +145,7 @@ class ContextFile:
 
         summaries: list[str] = []
         for sec in old:
-            summaries.append(self._summarize_section(sec))
+            summaries.append(self._summarize_section(sec, self._preview_max_chars))
 
         parts = ["## Pipeline History (summarized)"]
         parts.extend(f"- {s}" for s in summaries)
@@ -155,7 +156,7 @@ class ContextFile:
         return "\n".join(parts)
 
     @staticmethod
-    def _summarize_section(section: str) -> str:
+    def _summarize_section(section: str, max_chars: int = 120) -> str:
         """Compress a context.md section into a one-line summary."""
         import re
 
@@ -176,11 +177,11 @@ class ContextFile:
             for line in output_raw.split("\n"):
                 line = line.strip()
                 if line and not line.startswith("**") and not line.startswith("#"):
-                    preview = line[:120]
+                    preview = line[:max_chars]
                     break
             if not preview:
-                preview = output_raw[:120]
-            if len(output_raw) > 120:
+                preview = output_raw[:max_chars]
+            if len(output_raw) > max_chars:
                 preview += "..."
         else:
             preview = "(no output)"

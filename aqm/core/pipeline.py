@@ -33,9 +33,11 @@ from aqm.runtime.claude_code import ClaudeCodeRuntime
 from aqm.runtime.gemini import GeminiCLIRuntime
 from aqm.runtime.codex import CodexCLIRuntime
 
+from aqm.core.config import ProjectConfig
+
 logger = logging.getLogger(__name__)
 
-MAX_STAGES = 20
+MAX_STAGES = 20  # Fallback; overridden by config.pipeline.max_stages
 
 # Thread-safe set of task IDs that have been requested to cancel.
 # Checked each iteration of the pipeline loop.
@@ -61,12 +63,14 @@ class Pipeline:
         queue: AbstractQueue,
         project_root: Path,
         anthropic_client=None,
+        config: ProjectConfig | None = None,
     ) -> None:
         self.agents = agents
         self.queue = queue
         self.project_root = project_root
         self._anthropic_client = anthropic_client
         self._runtimes: dict[str, AbstractRuntime] = {}
+        self.config = config or ProjectConfig()
 
     @property
     def anthropic_client(self):
@@ -87,21 +91,22 @@ class Pipeline:
         rt = agent.runtime
 
         # Claude auto-detect: use Claude Code mode if MCP or flags are set
+        t = self.config.timeouts
         if rt == "claude":
             needs_tools = bool(agent.mcp) or bool(agent.claude_code_flags)
             cache_key = "claude_code" if needs_tools else "claude_text"
             if cache_key not in self._runtimes:
                 if needs_tools:
-                    self._runtimes[cache_key] = ClaudeCodeRuntime(self.project_root)
+                    self._runtimes[cache_key] = ClaudeCodeRuntime(self.project_root, timeout=t.claude_code)
                 else:
-                    self._runtimes[cache_key] = TextRuntime(self.project_root)
+                    self._runtimes[cache_key] = TextRuntime(self.project_root, timeout=t.text)
             return self._runtimes[cache_key]
 
         if rt not in self._runtimes:
             if rt == "gemini":
-                self._runtimes[rt] = GeminiCLIRuntime(self.project_root)
+                self._runtimes[rt] = GeminiCLIRuntime(self.project_root, timeout=t.gemini)
             elif rt == "codex":
-                self._runtimes[rt] = CodexCLIRuntime(self.project_root)
+                self._runtimes[rt] = CodexCLIRuntime(self.project_root, timeout=t.codex)
             else:
                 raise ValueError(f"Unknown runtime: {rt}")
         return self._runtimes[rt]
@@ -111,7 +116,7 @@ class Pipeline:
         if not agent.gate:
             return None
         if agent.gate.type == "llm":
-            return LLMGate(agent.gate, self.anthropic_client)
+            return LLMGate(agent.gate, self.anthropic_client, gate_defaults=self.config.gate)
         elif agent.gate.type == "human":
             return HumanGate()
         else:
@@ -123,7 +128,7 @@ class Pipeline:
         task_dir = tasks_dir / task.id
         if not task.context_dir:
             task.context_dir = str(task_dir)
-        return ContextFile(task_dir)
+        return ContextFile(task_dir, preview_max_chars=self.config.context.preview_max_chars)
 
     # ------------------------------------------------------------------
     # Handoff condition evaluation
@@ -285,7 +290,8 @@ class Pipeline:
 
         ctx_file = self._get_context_file(task)
 
-        while task.next_stage_number <= MAX_STAGES:
+        max_stages = self.config.pipeline.max_stages
+        while task.next_stage_number <= max_stages:
             # Check for cancellation
             if is_cancelled(task.id):
                 _cancelled_tasks.discard(task.id)
@@ -636,10 +642,10 @@ class Pipeline:
             current_input = next_payload
             current_agent_id = next_agent_id
 
-        # Exceeded MAX_STAGES
+        # Exceeded max_stages
         task.status = TaskStatus.failed
         task.metadata["error"] = (
-            f"Exceeded maximum number of stages ({MAX_STAGES})."
+            f"Exceeded maximum number of stages ({max_stages})."
         )
         self.queue.update(task)
         logger.error(f"[Pipeline] {task.id} exceeded maximum stages")

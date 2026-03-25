@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from aqm.core.agent import AgentDefinition, load_agents
+from aqm.core.config import load_project_config
 from aqm.core.context_file import ContextFile
 from aqm.core.pipeline import Pipeline
 from aqm.core.project import get_agents_yaml_path, get_db_path, get_tasks_dir
@@ -94,7 +95,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         try:
             agents = _get_agents(cli_params=cli_params, pipeline=pipeline)
             queue = _get_queue()
-            pipe = Pipeline(agents, queue, project_root)
+            pipe = Pipeline(agents, queue, project_root, config=load_project_config(project_root))
 
             def on_stage_start(t, agent_id, stage_number):
                 broadcast_event(t.id, "stage_start", {
@@ -592,7 +593,7 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
         agents = load_agents(agents_yaml_path)
         db_path = get_db_path(project_root)
         queue = SQLiteQueue(db_path)
-        pipeline = Pipeline(agents, queue, project_root)
+        pipeline = Pipeline(agents, queue, project_root, config=load_project_config(project_root))
 
         broadcast_event(task_id, "pipeline_resuming", {"decision": decision})
 
@@ -654,7 +655,7 @@ def _resume_human_input_bg(project_root: Path, task_id: str, response: str):
         agents_yaml_path = get_agents_yaml_path(project_root, pipeline_name)
         agents = load_agents(agents_yaml_path)
         queue = SQLiteQueue(db_path)
-        pipeline = Pipeline(agents, queue, project_root)
+        pipeline = Pipeline(agents, queue, project_root, config=load_project_config(project_root))
 
         broadcast_event(task_id, "pipeline_resuming", {"decision": "human_input"})
 
