@@ -124,12 +124,16 @@ def create_tasks_router(project_root: Path) -> APIRouter:
             def on_output(line):
                 broadcast_event(task.id, "stage_output", {"text": line})
 
+            def on_thinking(line):
+                broadcast_event(task.id, "stage_thinking", {"text": line})
+
             result = pipe.run_task(
                 task, start_agent,
                 input_text=input_text,
                 on_stage_complete=on_stage_complete,
                 on_stage_start=on_stage_start,
                 on_output=on_output,
+                on_thinking=on_thinking,
             )
 
             if result.status == TaskStatus.awaiting_gate:
@@ -568,11 +572,15 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
         def on_output(line):
             broadcast_event(task_id, "stage_output", {"text": line})
 
+        def on_thinking(line):
+            broadcast_event(task_id, "stage_thinking", {"text": line})
+
         result = pipeline.resume_task(
             task_id, decision, reason,
             on_stage_complete=on_stage_complete,
             on_stage_start=on_stage_start,
             on_output=on_output,
+            on_thinking=on_thinking,
         )
 
         if result.status == TaskStatus.awaiting_gate:

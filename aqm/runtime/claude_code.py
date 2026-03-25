@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition, MCPServerConfig
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
         agent: AgentDefinition,
         task: Task,
         on_output: OutputCallback = None,
+        on_thinking: ThinkingCallback = None,
     ) -> str:
         # --- Pre-flight check ---------------------------------------------------
         _check_claude_cli_available()
@@ -177,7 +178,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         try:
             if on_output:
-                output = self._run_streaming(cmd, agent, on_output)
+                output = self._run_streaming(cmd, agent, on_output, on_thinking)
             else:
                 result = subprocess.run(
                     cmd,
@@ -221,8 +222,23 @@ class ClaudeCodeRuntime(AbstractRuntime):
         cmd: list[str],
         agent: AgentDefinition,
         on_output: OutputCallback,
+        on_thinking: ThinkingCallback = None,
     ) -> str:
-        """Run with line-by-line streaming via Popen."""
+        """Run with streaming via Popen.
+
+        When *on_thinking* is provided, uses ``--output-format stream-json``
+        to separate thinking blocks from assistant text.  Falls back to
+        plain line-by-line streaming otherwise.
+        """
+        if on_thinking:
+            # Use stream-json to separate thinking from output
+            # --print + --output-format=stream-json requires --verbose
+            stream_cmd = list(cmd)
+            if "--verbose" not in stream_cmd:
+                stream_cmd.append("--verbose")
+            stream_cmd.extend(["--output-format", "stream-json"])
+            return self._run_stream_json(stream_cmd, agent, on_output, on_thinking)
+
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -265,3 +281,94 @@ class ClaudeCodeRuntime(AbstractRuntime):
             )
 
         return "".join(lines).strip()
+
+    def _run_stream_json(
+        self,
+        cmd: list[str],
+        agent: AgentDefinition,
+        on_output: OutputCallback,
+        on_thinking: ThinkingCallback,
+    ) -> str:
+        """Run with ``--output-format stream-json`` to get thinking + text."""
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(self.project_root),
+        )
+
+        output_parts: list[str] = []
+        try:
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    # Non-JSON line — treat as output
+                    output_parts.append(line)
+                    try:
+                        on_output(line)
+                    except Exception:
+                        pass
+                    continue
+
+                etype = event.get("type", "")
+
+                # Claude Code stream-json format:
+                #   {"type":"assistant","message":{"content":[
+                #     {"type":"thinking","thinking":"..."},
+                #     {"type":"text","text":"..."}
+                #   ]}}
+                #   {"type":"result","result":"...","subtype":"success"}
+                if etype == "assistant":
+                    msg = event.get("message", {})
+                    for block in msg.get("content", []):
+                        btype = block.get("type", "")
+                        if btype == "thinking":
+                            thinking_text = block.get("thinking", "")
+                            if thinking_text:
+                                try:
+                                    on_thinking(thinking_text)
+                                except Exception:
+                                    pass
+                        elif btype == "text":
+                            text = block.get("text", "")
+                            if text:
+                                output_parts.append(text)
+                                try:
+                                    on_output(text)
+                                except Exception:
+                                    pass
+                elif etype == "result":
+                    result_text = event.get("result", "")
+                    if result_text and not output_parts:
+                        output_parts.append(result_text)
+
+            proc.wait(timeout=600)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise RuntimeError(
+                f"Claude Code timed out (agent={agent.id})"
+            )
+
+        if proc.returncode != 0:
+            error_msg = (
+                proc.stderr.read().strip() if proc.stderr
+                else f"Exit code: {proc.returncode}"
+            )
+            logger.error(
+                "[ClaudeCodeRuntime] Agent '%s' failed: %s",
+                agent.id,
+                error_msg,
+            )
+            raise RuntimeError(
+                f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+            )
+
+        return "".join(output_parts).strip()

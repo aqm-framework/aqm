@@ -83,9 +83,31 @@ async function gateAction(action) {{
   <h3 id="liveTitle"><span class="live-dot"></span>{panel_title}</h3>
   <div class="progress-bar" style="margin-top:8px;"><div class="fill" id="progressFill" style="width:0%"></div></div>
   <div id="liveStatus" style="margin-top:8px;font-size:13px;color:var(--text-dim);"></div>
-  <pre id="liveOutput" style="margin-top:12px;background:var(--surface2);border:1px solid var(--border);
-    border-radius:6px;padding:12px;font-size:12px;max-height:400px;overflow-y:auto;white-space:pre-wrap;
-    word-break:break-word;display:none;"></pre>
+
+  <!-- Thinking panel -->
+  <div id="thinkingPanel" style="display:none;margin-top:12px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:pointer;" onclick="toggleThinking()">
+      <span style="font-size:13px;font-weight:600;color:var(--purple);">
+        <span id="thinkingIcon" style="display:inline-block;transition:transform .2s;">&#9654;</span>
+        Thinking
+      </span>
+      <span id="thinkingBadge" style="font-size:11px;background:#1a1040;color:var(--purple);border:1px solid #3b2d6b;
+        padding:1px 8px;border-radius:10px;"></span>
+      <span class="live-dot" id="thinkingDot" style="background:var(--purple);width:6px;height:6px;margin-left:4px;"></span>
+    </div>
+    <pre id="thinkingOutput" style="background:#0d0a1a;border:1px solid #2d2050;
+      border-radius:6px;padding:12px;font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;
+      word-break:break-word;color:#bc8cff;display:none;font-style:italic;"></pre>
+  </div>
+
+  <!-- Output panel -->
+  <div style="margin-top:8px;">
+    <div style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px;" id="outputLabel" style="display:none;">Output</div>
+    <pre id="liveOutput" style="margin-top:0;background:var(--surface2);border:1px solid var(--border);
+      border-radius:6px;padding:12px;font-size:12px;max-height:400px;overflow-y:auto;white-space:pre-wrap;
+      word-break:break-word;display:none;"></pre>
+  </div>
+
   <button class="btn btn-red btn-sm" style="margin-top:12px;" id="cancelBtn" onclick="cancelRunningTask()">Cancel</button>
 </div>
 <script>
@@ -94,7 +116,22 @@ async function gateAction(action) {{
   const statusEl = document.getElementById('liveStatus');
   const outputEl = document.getElementById('liveOutput');
   const titleEl = document.getElementById('liveTitle');
+  const thinkingPanel = document.getElementById('thinkingPanel');
+  const thinkingOutput = document.getElementById('thinkingOutput');
+  const thinkingBadge = document.getElementById('thinkingBadge');
+  const thinkingDot = document.getElementById('thinkingDot');
+  const thinkingIcon = document.getElementById('thinkingIcon');
+  const outputLabel = document.getElementById('outputLabel');
   let stageCount = {len(task.stages)};
+  let thinkingLines = 0;
+  let thinkingExpanded = false;
+
+  window.toggleThinking = function() {{
+    thinkingExpanded = !thinkingExpanded;
+    thinkingOutput.style.display = thinkingExpanded ? 'block' : 'none';
+    thinkingIcon.style.transform = thinkingExpanded ? 'rotate(90deg)' : 'rotate(0deg)';
+    if (thinkingExpanded) thinkingOutput.scrollTop = thinkingOutput.scrollHeight;
+  }};
 
   es.addEventListener('stage_start', (e) => {{
     const d = JSON.parse(e.data);
@@ -102,10 +139,26 @@ async function gateAction(action) {{
     statusEl.innerHTML = '<span class="live-dot"></span>Stage ' + d.stage_number + ': <strong>' + d.agent_id + '</strong> running...';
     outputEl.textContent = '';
     outputEl.style.display = 'block';
+    outputLabel.style.display = 'block';
+    thinkingOutput.textContent = '';
+    thinkingLines = 0;
+    thinkingPanel.style.display = 'none';
+    thinkingDot.style.display = 'inline-block';
+  }});
+  es.addEventListener('stage_thinking', (e) => {{
+    const d = JSON.parse(e.data);
+    thinkingPanel.style.display = 'block';
+    thinkingLines++;
+    thinkingBadge.textContent = thinkingLines + ' chunks';
+    thinkingOutput.textContent += d.text + '\\n';
+    if (thinkingExpanded) thinkingOutput.scrollTop = thinkingOutput.scrollHeight;
   }});
   es.addEventListener('stage_output', (e) => {{
     const d = JSON.parse(e.data);
     outputEl.style.display = 'block';
+    outputLabel.style.display = 'block';
+    // Stop thinking animation when output starts
+    thinkingDot.style.display = 'none';
     outputEl.textContent += d.text + '\\n';
     outputEl.scrollTop = outputEl.scrollHeight;
   }});
@@ -113,12 +166,16 @@ async function gateAction(action) {{
     const d = JSON.parse(e.data);
     stageCount++;
     statusEl.innerHTML = 'Stage ' + d.stage_number + ': <strong>' + d.agent_id + '</strong> — ' + (d.gate_result || 'done');
+    thinkingDot.style.display = 'none';
   }});
   es.addEventListener('pipeline_resuming', (e) => {{
     titleEl.innerHTML = '<span class="live-dot"></span>Pipeline Resuming...';
     statusEl.innerHTML = 'Loading next agent...';
     outputEl.textContent = '';
     outputEl.style.display = 'block';
+    thinkingOutput.textContent = '';
+    thinkingPanel.style.display = 'none';
+    thinkingLines = 0;
   }});
   es.addEventListener('gate_waiting', (e) => {{
     es.close();
