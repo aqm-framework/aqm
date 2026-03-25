@@ -42,17 +42,8 @@ class GateDefaults(BaseModel):
 
 class RuntimeTimeouts(BaseModel):
     claude: int = 600
-    gemini: int = 300
+    gemini: int = 600
     codex: int = 600
-
-
-class ServerConfig(BaseModel):
-    host: str = "127.0.0.1"
-    port: int = 8000
-
-
-class ContextConfig(BaseModel):
-    preview_max_chars: int = 120
 
 
 # ---------------------------------------------------------------------------
@@ -66,8 +57,6 @@ class ProjectConfig(BaseModel):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     gate: GateDefaults = Field(default_factory=GateDefaults)
     timeouts: RuntimeTimeouts = Field(default_factory=RuntimeTimeouts)
-    server: ServerConfig = Field(default_factory=ServerConfig)
-    context: ContextConfig = Field(default_factory=ContextConfig)
 
 
 # ---------------------------------------------------------------------------

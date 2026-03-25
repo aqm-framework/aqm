@@ -1196,16 +1196,11 @@ def validate(path: str | None, pipeline_name: str | None) -> None:
 
 
 @cli.command()
-@click.option("--port", default=None, type=int, help="Port number (default: from config or 8000)")
-@click.option("--host", default=None, help="Host (default: from config or 127.0.0.1)")
-def serve(port: int | None, host: str | None) -> None:
+@click.option("--port", default=8000, help="Port number")
+@click.option("--host", default="127.0.0.1", help="Host")
+def serve(port: int, host: str) -> None:
     """Run web dashboard."""
     root = _require_project()
-
-    from aqm.core.config import load_project_config
-    config = load_project_config(root)
-    port = port or config.server.port
-    host = host or config.server.host
 
     console.print(
         f"[green]aqm dashboard[/] → http://{host}:{port}\n"

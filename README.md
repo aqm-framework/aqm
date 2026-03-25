@@ -457,15 +457,8 @@ gate:
 
 timeouts:                     # Runtime subprocess timeouts (seconds)
   claude: 600
-  gemini: 300
+  gemini: 600
   codex: 600
-
-server:
-  host: 127.0.0.1
-  port: 8000
-
-context:
-  preview_max_chars: 120      # Summary preview length for smart windowing
 ```
 
 | Field | Type | Default | Description |
@@ -475,11 +468,8 @@ context:
 | `gate.timeout` | `int` | `120` | Gate subprocess timeout (seconds) |
 | `gate.system_prompt` | `string` | built-in | Custom gate system prompt |
 | `timeouts.claude` | `int` | `600` | Claude runtime timeout |
-| `timeouts.gemini` | `int` | `300` | Gemini CLI runtime timeout |
+| `timeouts.gemini` | `int` | `600` | Gemini CLI runtime timeout |
 | `timeouts.codex` | `int` | `600` | Codex CLI runtime timeout |
-| `server.host` | `string` | `"127.0.0.1"` | Web dashboard host |
-| `server.port` | `int` | `8000` | Web dashboard port |
-| `context.preview_max_chars` | `int` | `120` | Smart context summary preview length |
 
 ## Architecture
 
