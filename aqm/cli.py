@@ -637,9 +637,10 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
         console.print(f"  Available: {', '.join(agents.keys())}")
         sys.exit(1)
 
+    from aqm.core.config import load_project_config
     from aqm.core.pipeline import Pipeline
 
-    pipeline = Pipeline(agents, queue, root)
+    pipeline = Pipeline(agents, queue, root, config=load_project_config(root))
 
     task_priority = TaskPriority[priority]
     task_metadata = {"pipeline": pipeline_name} if pipeline_name else {}
@@ -873,9 +874,10 @@ def approve(task_id: str, reason: str) -> None:
     pipe_name = task.metadata.get("pipeline") if task else None
     agents = load_agents(get_agents_yaml_path(root, pipe_name))
 
+    from aqm.core.config import load_project_config
     from aqm.core.pipeline import Pipeline
 
-    pipeline = Pipeline(agents, queue, root)
+    pipeline = Pipeline(agents, queue, root, config=load_project_config(root))
 
     try:
         result = pipeline.resume_task(task_id, "approved", reason)
@@ -895,9 +897,10 @@ def reject(task_id: str, reason: str) -> None:
     pipe_name = task.metadata.get("pipeline") if task else None
     agents = load_agents(get_agents_yaml_path(root, pipe_name))
 
+    from aqm.core.config import load_project_config
     from aqm.core.pipeline import Pipeline
 
-    pipeline = Pipeline(agents, queue, root)
+    pipeline = Pipeline(agents, queue, root, config=load_project_config(root))
 
     try:
         result = pipeline.resume_task(task_id, "rejected", reason)
@@ -1193,11 +1196,16 @@ def validate(path: str | None, pipeline_name: str | None) -> None:
 
 
 @cli.command()
-@click.option("--port", default=8000, help="Port number")
-@click.option("--host", default="127.0.0.1", help="Host")
-def serve(port: int, host: str) -> None:
+@click.option("--port", default=None, type=int, help="Port number (default: from config or 8000)")
+@click.option("--host", default=None, help="Host (default: from config or 127.0.0.1)")
+def serve(port: int | None, host: str | None) -> None:
     """Run web dashboard."""
     root = _require_project()
+
+    from aqm.core.config import load_project_config
+    config = load_project_config(root)
+    port = port or config.server.port
+    host = host or config.server.host
 
     console.print(
         f"[green]aqm dashboard[/] → http://{host}:{port}\n"
@@ -1273,9 +1281,10 @@ def fix(task_id: str, input_text: str, agent: str | None, params: tuple[str, ...
 
     start_agent = agent or next(iter(agents))
 
+    from aqm.core.config import load_project_config
     from aqm.core.pipeline import Pipeline
 
-    pipeline = Pipeline(agents, queue, root)
+    pipeline = Pipeline(agents, queue, root, config=load_project_config(root))
 
     # Build the follow-up input with parent context
     followup_input = (

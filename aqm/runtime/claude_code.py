@@ -124,8 +124,9 @@ def _check_claude_cli_available() -> None:
 class ClaudeCodeRuntime(AbstractRuntime):
     """Execute a task by invoking the Claude Code CLI as a subprocess."""
 
-    def __init__(self, project_root: Path | None = None) -> None:
+    def __init__(self, project_root: Path | None = None, timeout: int = 600) -> None:
         self.project_root = project_root or Path.cwd()
+        self._timeout = timeout
 
     @property
     def name(self) -> str:
@@ -185,7 +186,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     capture_output=True,
                     text=True,
                     cwd=str(self.project_root),
-                    timeout=600,
+                    timeout=self._timeout,
                 )
 
                 if result.returncode != 0:
@@ -332,7 +333,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     if result_text and not output_parts:
                         output_parts.append(result_text)
 
-            proc.wait(timeout=600)
+            proc.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
             raise RuntimeError(

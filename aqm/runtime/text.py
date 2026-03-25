@@ -38,8 +38,9 @@ class TextRuntime(AbstractRuntime):
     without any tool use or file access.
     """
 
-    def __init__(self, project_root=None) -> None:
+    def __init__(self, project_root=None, timeout: int = 300) -> None:
         self._project_root = project_root
+        self._timeout = timeout
 
     @property
     def name(self) -> str:
@@ -76,7 +77,7 @@ class TextRuntime(AbstractRuntime):
             cmd,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=self._timeout,
         )
 
         if result.returncode != 0:
@@ -202,7 +203,7 @@ class TextRuntime(AbstractRuntime):
                     if result_text and not output_parts:
                         output_parts.append(result_text)
 
-            proc.wait(timeout=300)
+            proc.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
             raise RuntimeError(f"Claude CLI timed out (agent={agent.id})")

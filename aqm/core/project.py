@@ -196,32 +196,16 @@ def delete_pipeline(root: Path, name: str) -> None:
 
 def get_default_pipeline(root: Path) -> str | None:
     """Read the default pipeline name from .aqm/config.yaml."""
-    import yaml as _yaml
-    config_path = root / AQM_DIR / CONFIG_YAML
-    if not config_path.exists():
-        return None
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            data = _yaml.safe_load(f) or {}
-        return data.get("default_pipeline")
-    except Exception:
-        return None
+    from aqm.core.config import load_project_config
+    return load_project_config(root).default_pipeline
 
 
 def set_default_pipeline(root: Path, name: str) -> None:
     """Write the default pipeline name to .aqm/config.yaml."""
-    import yaml as _yaml
-    config_path = root / AQM_DIR / CONFIG_YAML
-    data: dict = {}
-    if config_path.exists():
-        try:
-            with open(config_path, encoding="utf-8") as f:
-                data = _yaml.safe_load(f) or {}
-        except Exception:
-            data = {}
-    data["default_pipeline"] = name
-    with open(config_path, "w", encoding="utf-8") as f:
-        _yaml.dump(data, f, default_flow_style=False)
+    from aqm.core.config import load_project_config, save_project_config
+    config = load_project_config(root)
+    config.default_pipeline = name
+    save_project_config(root, config)
 
 
 def _load_spec() -> str:

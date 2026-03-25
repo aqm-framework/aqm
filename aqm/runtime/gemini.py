@@ -73,8 +73,9 @@ class GeminiCLIRuntime(AbstractRuntime):
     the ``GEMINI_SYSTEM_MD`` environment variable.
     """
 
-    def __init__(self, project_root=None) -> None:
+    def __init__(self, project_root=None, timeout: int = 300) -> None:
         self._project_root = project_root
+        self._timeout = timeout
 
     @property
     def name(self) -> str:
@@ -121,7 +122,7 @@ class GeminiCLIRuntime(AbstractRuntime):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=self._timeout,
                 env=env,
             )
 
@@ -178,7 +179,7 @@ class GeminiCLIRuntime(AbstractRuntime):
                 except Exception:
                     pass
 
-            proc.wait(timeout=300)
+            proc.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
             raise RuntimeError(
