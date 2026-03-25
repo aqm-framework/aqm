@@ -318,24 +318,88 @@ agents:
 
 ## CLI 레퍼런스
 
-| 명령어 | 설명 |
-|---|---|
-| `aqm init` | 대화형 프로젝트 설정 (AI 생성, 템플릿, 또는 pull) |
-| `aqm run "태스크"` | 파이프라인 실행 (`--agent`, `--param`, `--priority`, `--parallel`, `--pipeline`) |
-| `aqm fix <task_id> "텍스트"` | 부모 컨텍스트를 포함한 후속 태스크 |
-| `aqm status [task_id]` | 태스크 상태 (요약 또는 상세) |
-| `aqm list [--filter status]` | 태스크 목록 |
-| `aqm approve <task_id>` | 휴먼 게이트 승인 |
-| `aqm reject <task_id> -r "사유"` | 휴먼 게이트 반려 |
-| `aqm cancel <task_id>` | 태스크 취소 |
-| `aqm priority <task_id> level` | 우선순위 변경 |
-| `aqm agents` | 에이전트 그래프 표시 |
-| `aqm context <task_id>` | context.md 보기 |
-| `aqm chunks list/add/done/remove` | 청크 관리 |
-| `aqm pipeline list/create/edit/default/delete` | 파이프라인 관리 |
-| `aqm serve` | 웹 대시보드 (`pip install aqm[serve]` 필요) |
-| `aqm pull/publish/search` | 레지스트리 작업 |
-| `aqm validate` | YAML 스키마 검증 |
+### 프로젝트 설정
+
+```bash
+aqm init                          # 대화형: [1] AI 생성 [2] 템플릿 [3] 레지스트리에서 pull
+aqm init --path ./my-project      # 특정 디렉토리에 초기화
+aqm validate                      # agents.yaml 스키마 검증
+aqm validate --pipeline review    # 특정 파이프라인 검증
+aqm agents                        # 에이전트 그래프 및 연결 표시
+```
+
+### 파이프라인 실행
+
+```bash
+aqm run "JWT 인증 추가"                           # 기본 파이프라인 실행
+aqm run "로그인 버그 수정" --agent bug_fixer       # 특정 에이전트에서 시작
+aqm run "API 구축" --pipeline backend              # 지정된 파이프라인 실행
+aqm run "배포" --priority critical                 # 우선순위 설정 (critical|high|normal|low)
+aqm run "테스트" --param model=claude-opus-4-6     # 파이프라인 파라미터 재정의
+aqm run "태스크" --parallel                        # 다른 태스크와 병렬 실행
+```
+
+### 태스크 관리
+
+```bash
+aqm list                          # 모든 태스크 목록
+aqm list --filter completed       # 상태별 필터 (pending|in_progress|completed|failed|cancelled)
+aqm status T-ABC123               # 상세 태스크 상태 + stage 이력
+aqm context T-ABC123              # 태스크의 전체 context.md 보기
+aqm priority T-ABC123 high        # 우선순위 변경 (critical|high|normal|low)
+aqm cancel T-ABC123               # 실행 중/대기 중 태스크 취소
+aqm fix T-ABC123 "색상 수정해줘"    # 이전 태스크 컨텍스트를 포함한 후속 태스크
+```
+
+### 게이트 & 사람 입력
+
+```bash
+aqm approve T-ABC123              # 휴먼 게이트 승인 (파이프라인 재개)
+aqm approve T-ABC123 -r "LGTM"   # 사유와 함께 승인
+aqm reject T-ABC123 -r "테스트 필요"    # 휴먼 게이트 반려 (사유 필수)
+aqm human-input T-ABC123 "PostgreSQL에 다크모드로 해주세요"   # 에이전트 질문에 응답
+```
+
+### 청크 (작업 단위)
+
+```bash
+aqm chunks list T-ABC123          # 청크 상태 테이블 표시
+aqm chunks add T-ABC123 "에러 핸들링 추가"    # 새 청크 추가
+aqm chunks done T-ABC123 C-001    # 청크 완료 표시
+aqm chunks remove T-ABC123 C-002  # 청크 삭제
+```
+
+### 파이프라인 관리
+
+```bash
+aqm pipeline list                 # 모든 파이프라인 목록 (★ = 기본)
+aqm pipeline create review        # 새 파이프라인 생성 (대화형)
+aqm pipeline create review --ai   # AI로 파이프라인 생성
+aqm pipeline create review --template   # 템플릿에서 생성
+aqm pipeline edit review          # AI 도움으로 파이프라인 편집
+aqm pipeline default review       # 기본 파이프라인 설정
+aqm pipeline delete review        # 파이프라인 삭제
+```
+
+### 레지스트리 (공유 & 탐색)
+
+```bash
+aqm search                        # 사용 가능한 모든 파이프라인 목록
+aqm search "code review"          # 키워드 검색
+aqm search --offline              # 로컬 레지스트리만 검색
+aqm pull code-review-pipeline     # 레지스트리에서 파이프라인 설치
+aqm pull my-pipeline --repo org/registry   # 커스텀 레지스트리에서 pull
+aqm publish --name my-pipeline    # GitHub 레지스트리에 게시 (PR 생성)
+aqm publish --local               # 로컬 레지스트리에만 저장
+```
+
+### 웹 대시보드
+
+```bash
+aqm serve                         # localhost:8000에서 시작
+aqm serve --port 3000             # 커스텀 포트
+aqm serve --host 0.0.0.0          # 원격 접속 허용
+```
 
 ## agents.yaml 레퍼런스
 

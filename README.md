@@ -313,24 +313,88 @@ agents:
 
 ## CLI Reference
 
-| Command | Description |
-|---|---|
-| `aqm init` | Interactive project setup (AI-generate, template, or pull) |
-| `aqm run "task"` | Run pipeline (`--agent`, `--param`, `--priority`, `--parallel`, `--pipeline`) |
-| `aqm fix <task_id> "text"` | Follow-up task with parent context |
-| `aqm status [task_id]` | Task status (summary or detail) |
-| `aqm list [--filter status]` | List tasks |
-| `aqm approve <task_id>` | Approve human gate |
-| `aqm reject <task_id> -r "reason"` | Reject human gate |
-| `aqm cancel <task_id>` | Cancel task |
-| `aqm priority <task_id> level` | Change priority |
-| `aqm agents` | Show agent graph |
-| `aqm context <task_id>` | View context.md |
-| `aqm chunks list/add/done/remove` | Manage chunks |
-| `aqm pipeline list/create/edit/default/delete` | Manage pipelines |
-| `aqm serve` | Web dashboard (requires `pip install aqm[serve]`) |
-| `aqm pull/publish/search` | Registry operations |
-| `aqm validate` | Validate YAML against schema |
+### Project Setup
+
+```bash
+aqm init                          # Interactive: [1] AI-generate [2] Template [3] Pull from registry
+aqm init --path ./my-project      # Initialize in a specific directory
+aqm validate                      # Validate agents.yaml against schema
+aqm validate --pipeline review    # Validate a specific pipeline
+aqm agents                        # Show agent graph and connections
+```
+
+### Running Pipelines
+
+```bash
+aqm run "Add JWT auth"                          # Run default pipeline
+aqm run "Fix login bug" --agent bug_fixer       # Start from a specific agent
+aqm run "Build API" --pipeline backend          # Run a named pipeline
+aqm run "Deploy" --priority critical            # Set priority (critical|high|normal|low)
+aqm run "Test" --param model=claude-opus-4-6    # Override pipeline parameters
+aqm run "Task" --parallel                       # Run in parallel with other tasks
+```
+
+### Task Management
+
+```bash
+aqm list                          # List all tasks
+aqm list --filter completed       # Filter by status (pending|in_progress|completed|failed|cancelled)
+aqm status T-ABC123               # Detailed task status with stage history
+aqm context T-ABC123              # View full context.md for a task
+aqm priority T-ABC123 high        # Change priority (critical|high|normal|low)
+aqm cancel T-ABC123               # Cancel a running or pending task
+aqm fix T-ABC123 "Fix the color"  # Follow-up task with parent context carried over
+```
+
+### Gates & Human Input
+
+```bash
+aqm approve T-ABC123              # Approve human gate (resumes pipeline)
+aqm approve T-ABC123 -r "LGTM"   # Approve with reason
+aqm reject T-ABC123 -r "Needs tests"   # Reject human gate (reason required)
+aqm human-input T-ABC123 "Use PostgreSQL and dark mode"   # Respond to agent's question
+```
+
+### Chunks (Work Units)
+
+```bash
+aqm chunks list T-ABC123          # Show chunk status table
+aqm chunks add T-ABC123 "Add error handling"    # Add a new chunk
+aqm chunks done T-ABC123 C-001    # Mark chunk as done
+aqm chunks remove T-ABC123 C-002  # Remove a chunk
+```
+
+### Pipeline Management
+
+```bash
+aqm pipeline list                 # List all pipelines (shows ★ for default)
+aqm pipeline create review        # Create new pipeline (interactive)
+aqm pipeline create review --ai   # AI-generate pipeline
+aqm pipeline create review --template   # Create from template
+aqm pipeline edit review          # Edit pipeline with AI assistance
+aqm pipeline default review       # Set default pipeline
+aqm pipeline delete review        # Delete a pipeline
+```
+
+### Registry (Share & Discover)
+
+```bash
+aqm search                        # List all available pipelines
+aqm search "code review"          # Search by keyword
+aqm search --offline              # Search local registry only
+aqm pull code-review-pipeline     # Install pipeline from registry
+aqm pull my-pipeline --repo org/registry   # Pull from custom registry
+aqm publish --name my-pipeline    # Publish to GitHub registry (creates PR)
+aqm publish --local               # Save to local registry only
+```
+
+### Web Dashboard
+
+```bash
+aqm serve                         # Start at localhost:8000
+aqm serve --port 3000             # Custom port
+aqm serve --host 0.0.0.0          # Allow remote access
+```
 
 ## agents.yaml Reference
 
