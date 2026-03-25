@@ -377,5 +377,5 @@ class TestContextFileEdgeCases:
             output_text="日本語の出力 🎉",
         )
         content = cf.read_agent_context("dev")
-        assert "한글 입력" in content
+        # agent context stores only output now
         assert "日本語の出力" in content
