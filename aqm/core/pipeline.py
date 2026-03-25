@@ -355,6 +355,15 @@ class Pipeline:
                     )
                     return task
 
+                # Check if session was cancelled
+                if is_cancelled(task.id):
+                    from aqm.core.pipeline import _cancelled_tasks
+                    _cancelled_tasks.discard(task.id)
+                    task.status = TaskStatus.cancelled
+                    task.metadata["cancel_reason"] = "Cancelled during session"
+                    self.queue.update(task)
+                    return task
+
                 # Session nodes skip gate evaluation; proceed to handoffs
                 gate_result: Optional[GateResult] = None
                 # Jump to handoff resolution below
@@ -717,8 +726,16 @@ class Pipeline:
                 if on_turn_start:
                     on_turn_start(task, agent.id, stage_num)
 
-                runtime = self._get_runtime(agent)
-                message = runtime.run(prompt, agent, task, on_output=on_output)
+                try:
+                    runtime = self._get_runtime(agent)
+                    message = runtime.run(prompt, agent, task, on_output=on_output)
+                except Exception as turn_err:
+                    # Record failed turn but continue session
+                    message = f"[ERROR: agent '{agent.id}' failed: {turn_err}]"
+                    logger.error(
+                        "[Pipeline] Session '%s' agent '%s' failed in round %d: %s",
+                        session.id, agent.id, round_num, turn_err,
+                    )
 
                 # Record as a stage
                 stage = StageRecord(

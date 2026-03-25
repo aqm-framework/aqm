@@ -491,6 +491,32 @@ def load_agents(
                     f"Session '{agent.id}' summary_agent "
                     f"'{agent.summary_agent}' does not exist."
                 )
+            if (
+                agent.summary_agent
+                and agent.summary_agent not in agent.participants
+            ):
+                raise ValueError(
+                    f"Session '{agent.id}' summary_agent "
+                    f"'{agent.summary_agent}' must be a participant."
+                )
+            if (
+                agent.consensus
+                and agent.consensus.require_chunks_done
+                and not agent.chunks
+            ):
+                raise ValueError(
+                    f"Session '{agent.id}' has require_chunks_done=true "
+                    f"but no 'chunks' config defined."
+                )
+
+        # Warn about session-only fields on regular agents
+        if agent.type == "agent" and agent.chunks is not None:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Agent '%s' has 'chunks' config but is not a session node "
+                "(chunks only apply to type: session).",
+                agent.id,
+            )
 
         for handoff in agent.handoffs:
             if handoff.condition == "auto":

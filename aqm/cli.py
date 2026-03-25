@@ -615,7 +615,15 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
                         queue.update(stale)
                     break
 
+    if not agents:
+        console.print("[red]Error:[/] No agents defined in pipeline. Run [bold]aqm init[/] first.")
+        sys.exit(1)
+
     start_agent = agent or next(iter(agents))
+    if start_agent not in agents:
+        console.print(f"[red]Error:[/] Agent '{start_agent}' not found.")
+        console.print(f"  Available: {', '.join(agents.keys())}")
+        sys.exit(1)
 
     from aqm.core.pipeline import Pipeline
 
