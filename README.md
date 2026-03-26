@@ -1,8 +1,8 @@
 # aqm
 
-An orchestration framework where multiple AI agents pass tasks through **explicit queues** — or **discuss in real-time sessions** until consensus.
+**Build AI agent teams in YAML. No code. No API keys. Just pipelines.**
 
-Build pipelines in YAML. Share them with anyone. Run them locally.
+An orchestration framework where multiple AI agents pass tasks through **explicit queues** — or **discuss in real-time sessions** until consensus. Define once, run anywhere, share with anyone.
 
 **[한국어 문서 (Korean)](docs/README.ko.md)**
 
@@ -13,13 +13,67 @@ Build pipelines in YAML. Share them with anyone. Run them locally.
                         └── ask user ──►[user]             [arch][sec][fe]  until consensus
 ```
 
+## Why aqm?
+
+A single AI agent writes code and reviews it with the **same bias**. It can't catch its own blind spots.
+
+aqm gives you a **team** — each agent has a dedicated role, a separate prompt, and optionally a different LLM. A quality gate rejects bad output automatically. A session lets agents debate before deciding.
+
+```yaml
+# One YAML file. That's the entire pipeline.
+agents:
+  - id: developer
+    runtime: claude
+    system_prompt: "Implement: {{ input }}"
+    handoffs: [{ to: reviewer }]
+
+  - id: reviewer
+    runtime: gemini                    # Different LLM catches different bugs
+    system_prompt: "Review for security: {{ input }}"
+    gate:
+      type: llm
+      prompt: "Is this production-ready?"
+      max_retries: 3                   # Auto-reject → retry up to 3 times
+    handoffs:
+      - { to: deployer, condition: on_approve }
+      - { to: developer, condition: on_reject }
+
+  - id: deployer
+    runtime: claude
+    context_strategy: none             # 85% token savings — no context needed
+    system_prompt: "Deploy: {{ input }}"
+```
+
+```bash
+pip install aqm && aqm init && aqm run "Add JWT authentication"
+```
+
+### What makes aqm different
+
+| Problem | Single Agent | aqm |
+|---|---|---|
+| Same LLM reviews its own code | One bias, one perspective | **Cross-LLM verification** (Claude writes, Gemini reviews) |
+| No forced quality checks | Agent says "looks good" to itself | **Quality gates** auto-reject and retry |
+| Context window explodes at scale | Everything in one conversation | **5 context strategies** — 55-85% token savings |
+| Can't standardize team processes | Every run is ad-hoc | **YAML pipelines** — version-controlled, shareable |
+| Expensive API costs | Per-token API billing adds up | **CLI-based** — uses your existing CLI subscriptions, no extra API fees |
+| Setup overhead | API keys, SDKs, env configs | **Zero config** — uses CLI tools you already have |
+
 ## Install
 
 ```bash
 pip install aqm
 ```
 
-> Requires Python 3.11+. At least one LLM CLI must be installed (see Multi-LLM below).
+> Requires Python 3.11+. At least one LLM CLI must be installed:
+
+| Runtime | Provider | Install |
+|---|---|---|
+| `claude` | Anthropic | `npm i -g @anthropic-ai/claude-code && claude login` |
+| `gemini` | Google | `npm i -g @google/gemini-cli` |
+| `codex` | OpenAI | `npm i -g @openai/codex` |
+
+No API keys or SDK setup needed — aqm runs CLI tools as subprocesses. You pay for the CLI subscriptions you already have, not per-token API fees.
 
 ## Quick Start
 
@@ -30,19 +84,118 @@ aqm run "Add JWT authentication"       # Run pipeline
 aqm serve                              # Web dashboard at localhost:8000
 ```
 
+## Real-World Examples
+
+### Example 1: Code Review Pipeline
+
+Every PR goes through planning, implementation, review, and testing — automatically.
+
+```yaml
+agents:
+  - id: planner
+    runtime: gemini
+    system_prompt: "Break this into implementation steps: {{ input }}"
+    handoffs: [{ to: developer }]
+
+  - id: developer
+    runtime: claude
+    mcp: [{ server: github }]
+    system_prompt: "Implement the plan: {{ input }}"
+    handoffs: [{ to: reviewer }]
+
+  - id: reviewer
+    runtime: gemini                    # Different LLM = different perspective
+    system_prompt: "Review for bugs and security issues: {{ input }}"
+    gate:
+      type: llm
+      prompt: "Is this code production-ready? Check OWASP Top 10."
+      max_retries: 3
+    handoffs:
+      - { to: qa, condition: on_approve }
+      - { to: developer, condition: on_reject }
+
+  - id: qa
+    runtime: claude
+    context_strategy: last_only        # Only needs reviewer's output → 55% fewer tokens
+    system_prompt: "Write tests for: {{ input }}"
+```
+
+```bash
+aqm run "Add user preferences with database, API, and frontend"
+```
+
+### Example 2: Architecture Decision Session
+
+Multiple experts debate until they agree — like a real design meeting.
+
+```yaml
+agents:
+  - id: architect
+    runtime: claude
+    system_prompt: |
+      You are a software architect. Discuss: {{ input }}
+      Previous discussion: {{ transcript }}
+
+  - id: security
+    runtime: gemini
+    system_prompt: |
+      You are a security expert. Focus on threats: {{ input }}
+      Previous discussion: {{ transcript }}
+
+  - id: design_session
+    type: session
+    participants: [architect, security]
+    max_rounds: 5
+    consensus:
+      method: vote
+      keyword: "VOTE: AGREE"
+      require: all
+    summary_agent: architect
+    handoffs: [{ to: developer }]
+```
+
+```
+── Round 1 ──
+  [architect] JWT for stateless scaling. Token rotation every 15min...
+  [security] Token revocation is the weak point. Consider hybrid...
+── Round 2 ──
+  [architect] Agreed — hybrid with Redis blacklist. VOTE: AGREE  ✓
+  [security] Redis approach works. VOTE: AGREE  ✓
+✓ Consensus reached (round 2)
+```
+
+### Example 3: Human-in-the-Loop Deployment
+
+AI does the work, but humans approve the critical steps.
+
+```yaml
+agents:
+  - id: developer
+    runtime: claude
+    human_input:
+      mode: before
+      prompt: "What features do you want? Any constraints?"
+    system_prompt: "Build: {{ input }}"
+    handoffs: [{ to: deployer }]
+
+  - id: deployer
+    runtime: claude
+    gate: { type: human }              # Pipeline pauses for manual approval
+    system_prompt: "Deploy: {{ input }}"
+```
+
+```bash
+aqm run "Refactor auth module"
+# → Developer asks for your input first
+# → After coding, pipeline pauses at deployer
+aqm approve T-ABC123 -r "LGTM, deploy to staging"
+```
+
 ## Features
 
 ### Multi-LLM Runtimes
 
-Mix providers per agent. All use CLI subprocesses — no API keys or SDK setup needed.
-
-| Runtime | Provider | Install |
-|---|---|---|
-| `claude` | Anthropic | `npm i -g @anthropic-ai/claude-code && claude login` |
-| `gemini` | Google | `npm i -g @google/gemini-cli` |
-| `codex` | OpenAI | `npm i -g @openai/codex` |
-
-Claude always runs in **Code mode** — MCP servers and tools are available when configured.
+Mix providers per agent. Claude writes code, Gemini reviews it, Codex tests it.
 
 ```yaml
 agents:
@@ -83,17 +236,6 @@ agents:
 |---|---|
 | `vote` | Each agent includes the keyword in their output. Consensus when `all` or `majority` agree. |
 | `moderator_decides` | Only the `summary_agent` can declare consensus. |
-
-**CLI output:**
-```
-── Round 1 ──
-  [architect] I favor JWT for stateless scaling...
-  [security] Token revocation concerns...
-── Round 2 ──
-  [architect] Hybrid approach. VOTE: AGREE  ✓
-  [security] VOTE: AGREE  ✓
-✓ Consensus reached (round 2)
-```
 
 Produces `transcript.md` meeting minutes. Mix freely: `batch → session → batch`.
 
@@ -141,26 +283,14 @@ Each agent has a `context_strategy` that controls what `{{ context }}` contains.
 ```yaml
 agents:
   - id: planner
-    runtime: claude
     context_strategy: both            # Full visibility (default)
-    system_prompt: "Plan: {{ input }} Context: {{ context }}"
 
   - id: developer
-    runtime: claude
     context_strategy: last_only       # Only previous stage → 55% savings
     context_window: 1
-    system_prompt: "Implement: {{ input }} Previous: {{ context }}"
-
-  - id: qa
-    runtime: claude
-    context_strategy: shared          # Smart-windowed history
-    context_window: 2
-    system_prompt: "Test: {{ input }} History: {{ context }}"
 
   - id: deployer
-    runtime: claude
     context_strategy: none            # No context → 85% savings
-    system_prompt: "Deploy: {{ input }}"
 ```
 
 | Strategy | `{{ context }}` Contains | Token Savings | Use Case |
@@ -178,19 +308,6 @@ both              12,233        0%
 last_only          5,504       55%
 none               1,873       85%
 ```
-
-**File structure per task:**
-```
-.aqm/tasks/{task_id}/
-├── context.md              # Shared (all stages, read by 'shared'/'both')
-├── agent_architect.md      # Architect's private notes (read by 'own'/'both')
-├── agent_developer.md      # Developer's private notes
-├── transcript.md           # Session meeting minutes
-├── chunks.json             # Chunk tracking
-└── current_payload.md      # Last handoff payload
-```
-
-Every agent's output is written to **both** the shared `context.md` and their private `agent_{id}.md`. The `context_strategy` only controls what they **read**.
 
 ### Handoff Routing
 
@@ -219,50 +336,24 @@ handoffs:
 
 ### Human Input (Human-in-the-Loop)
 
-Agents can request input from humans during pipeline execution — for clarifying requirements, gathering feedback, or making decisions that need human judgment.
-
 ```yaml
 agents:
   - id: planner
-    runtime: claude
     human_input:
-      enabled: true
       mode: before           # Ask before agent runs
-      prompt: "What specific features do you want? Any design preferences?"
-    system_prompt: |
-      Plan the project based on the user's requirements.
-      {{ input }}
+      prompt: "What specific features do you want?"
 
   - id: developer
-    runtime: claude
-    human_input: true        # Shorthand for on_demand mode
-    system_prompt: |
-      Implement the plan. If you need clarification, use:
-      HUMAN_INPUT: <your question here>
-      {{ input }}
+    human_input: true        # Shorthand: agent can ask mid-execution via HUMAN_INPUT: <question>
 ```
 
 **Modes:**
 
 | Mode | Behavior |
 |---|---|
-| `before` | Always pause and ask the user before the agent runs. Good for requirements gathering. |
-| `on_demand` | Agent requests input via `HUMAN_INPUT: <question>` directives in output. Good for mid-execution clarification. |
+| `before` | Always pause and ask the user before the agent runs. |
+| `on_demand` | Agent requests input via `HUMAN_INPUT: <question>` directives in output. |
 | `both` | Combines both modes. |
-
-**Shorthand formats:**
-```yaml
-human_input: true              # Same as { enabled: true, mode: on_demand }
-human_input: "before"          # Same as { enabled: true, mode: before }
-human_input:
-  enabled: true
-  mode: before
-  prompt: "Custom question"    # Shown to user in 'before' mode
-```
-
-Human responses are recorded in both `context.md` (shared) and `agent_{id}.md` (private), so all agents can see what the user said.
-
-**Web dashboard** shows a cyan input panel when an agent needs input. **CLI:** responses via `aqm human-input <task_id> "response"`.
 
 ### Gates (Quality Control)
 
@@ -270,6 +361,7 @@ Human responses are recorded in both `context.md` (shared) and `agent_{id}.md` (
 gate:
   type: llm              # LLM auto-evaluates → approved/rejected
   prompt: "Is this production-ready?"
+  max_retries: 3         # Reject → retry up to 3 times, then fail
 
 gate:
   type: human            # Pauses pipeline → aqm approve/reject
@@ -299,7 +391,6 @@ params:
     type: string
     required: true
     prompt: "Project root path?"
-    auto_detect: "Read package.json name"
 
 agents:
   - id: dev
@@ -307,8 +398,6 @@ agents:
 ```
 
 **Override:** `aqm run "task" --param model=claude-opus-4-6`
-
-**Priority:** CLI flags > params.yaml > interactive prompt > defaults
 
 ### Imports / Extends
 
@@ -328,128 +417,64 @@ agents:
     system_prompt: "Review code: {{ input }}"
 ```
 
+### Pipeline Registry (Share & Discover)
+
+```bash
+aqm search "code review"              # Find community pipelines
+aqm pull security-audit               # Install in one command
+aqm publish --name my-pipeline        # Share yours
+```
+
 ## CLI Reference
 
-### Project Setup
-
 ```bash
-aqm init                          # Interactive: [1] AI-generate [2] Template [3] Pull from registry
-aqm init --path ./my-project      # Initialize in a specific directory
-aqm validate                      # Validate agents.yaml against schema
-aqm validate --pipeline review    # Validate a specific pipeline
-aqm agents                        # Show agent graph and connections
-```
+# Setup
+aqm init                              # Interactive setup wizard
+aqm validate                          # Validate agents.yaml
+aqm agents                            # Show agent graph
 
-### Running Pipelines
+# Run
+aqm run "Add JWT auth"                # Run default pipeline
+aqm run "Fix bug" --agent bug_fixer   # Start from specific agent
+aqm run "Build API" --pipeline backend # Named pipeline
+aqm run "Task" --param model=opus     # Override parameters
 
-```bash
-aqm run "Add JWT auth"                          # Run default pipeline
-aqm run "Fix login bug" --agent bug_fixer       # Start from a specific agent
-aqm run "Build API" --pipeline backend          # Run a named pipeline
-aqm run "Deploy" --priority critical            # Set priority (critical|high|normal|low)
-aqm run "Test" --param model=claude-opus-4-6    # Override pipeline parameters
-aqm run "Task" --parallel                       # Run in parallel with other tasks
-```
+# Manage
+aqm list                              # List all tasks
+aqm status T-ABC123                   # Task details
+aqm cancel T-ABC123                   # Cancel task
+aqm fix T-ABC123 "Fix the color"      # Follow-up with context
 
-### Task Management
+# Gates & Human Input
+aqm approve T-ABC123                  # Approve gate
+aqm reject T-ABC123 -r "Needs tests" # Reject gate
+aqm human-input T-ABC123 "response"   # Answer agent's question
 
-```bash
-aqm list                          # List all tasks
-aqm list --filter completed       # Filter by status (pending|in_progress|completed|failed|cancelled)
-aqm status T-ABC123               # Detailed task status with stage history
-aqm context T-ABC123              # View full context.md for a task
-aqm priority T-ABC123 high        # Change priority (critical|high|normal|low)
-aqm cancel T-ABC123               # Cancel a running or pending task
-aqm fix T-ABC123 "Fix the color"  # Follow-up task with parent context carried over
-```
+# Chunks
+aqm chunks list T-ABC123              # Status table
+aqm chunks done T-ABC123 C-001        # Mark done
 
-### Gates & Human Input
+# Pipelines
+aqm pipeline list                     # List pipelines
+aqm pipeline create review --ai       # AI-generate
+aqm pipeline default review           # Set default
 
-```bash
-aqm approve T-ABC123              # Approve human gate (resumes pipeline)
-aqm approve T-ABC123 -r "LGTM"   # Approve with reason
-aqm reject T-ABC123 -r "Needs tests"   # Reject human gate (reason required)
-aqm human-input T-ABC123 "Use PostgreSQL and dark mode"   # Respond to agent's question
-```
+# Registry
+aqm search "code review"              # Search
+aqm pull code-review-pipeline         # Install
+aqm publish --name my-pipeline        # Share
 
-### Chunks (Work Units)
-
-```bash
-aqm chunks list T-ABC123          # Show chunk status table
-aqm chunks add T-ABC123 "Add error handling"    # Add a new chunk
-aqm chunks done T-ABC123 C-001    # Mark chunk as done
-aqm chunks remove T-ABC123 C-002  # Remove a chunk
-```
-
-### Pipeline Management
-
-```bash
-aqm pipeline list                 # List all pipelines (shows ★ for default)
-aqm pipeline create review        # Create new pipeline (interactive)
-aqm pipeline create review --ai   # AI-generate pipeline
-aqm pipeline create review --template   # Create from template
-aqm pipeline edit review          # Edit pipeline with AI assistance
-aqm pipeline default review       # Set default pipeline
-aqm pipeline delete review        # Delete a pipeline
-```
-
-### Registry (Share & Discover)
-
-```bash
-aqm search                        # List all available pipelines
-aqm search "code review"          # Search by keyword
-aqm search --offline              # Search local registry only
-aqm pull code-review-pipeline     # Install pipeline from registry
-aqm pull my-pipeline --repo org/registry   # Pull from custom registry
-aqm publish --name my-pipeline    # Publish to GitHub registry (creates PR)
-aqm publish --local               # Save to local registry only
-```
-
-### Web Dashboard
-
-```bash
-aqm serve                         # Start at localhost:8000
-aqm serve --port 3000             # Custom port
-aqm serve --host 0.0.0.0          # Allow remote access
+# Dashboard
+aqm serve                             # Web UI at localhost:8000
 ```
 
 ## agents.yaml Reference
 
 ### Entry Point (Auto-Routing)
 
-Control which agent receives the user's input first:
-
 ```yaml
 entry_point: auto    # LLM picks the best agent based on user input
-# entry_point: first  # (default) Always start with the first agent in the list
-```
-
-| Value | Behavior |
-|---|---|
-| `first` (default) | First agent in the YAML list receives the task. Backward-compatible. |
-| `auto` | LLM analyzes the user input against all agents and picks the most appropriate one. |
-
-**Example — Multi-domain pipeline with auto-routing:**
-```yaml
-entry_point: auto
-
-agents:
-  - id: code_reviewer
-    runtime: claude
-    system_prompt: "Review code: {{ input }}"
-  - id: bug_fixer
-    runtime: claude
-    system_prompt: "Fix bug: {{ input }}"
-  - id: feature_planner
-    runtime: claude
-    system_prompt: "Plan feature: {{ input }}"
-```
-
-```bash
-aqm run "Review PR #42"          # → auto-selects code_reviewer
-aqm run "Fix login crash"        # → auto-selects bug_fixer
-aqm run "Add dark mode"          # → auto-selects feature_planner
-aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
+# entry_point: first  # (default) Always start with the first agent
 ```
 
 ### Agent Definition
@@ -465,9 +490,9 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `context_strategy` | `"none"` \| `"last_only"` \| `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
 | `context_window` | `int` | `3` | Recent stages in full; older stages summarized (0 = all) |
 | `human_input` | `boolean` \| `object` | `null` | Human-in-the-loop input (`before`, `on_demand`, `both`) |
-| `handoffs` | `list[Handoff]` | `[]` | Routing rules (see below) |
-| `gate` | `object` | `null` | Quality gate (see below) |
-| `mcp` | `list[MCPServer]` | `[]` | MCP server connections (see below) |
+| `handoffs` | `list[Handoff]` | `[]` | Routing rules |
+| `gate` | `object` | `null` | Quality gate |
+| `mcp` | `list[MCPServer]` | `[]` | MCP server connections |
 | `claude_code_flags` | `list[string]` | `null` | Extra CLI flags for Claude |
 | `abstract` | `boolean` | `false` | Template-only agent (not executed) |
 | `extends` | `string` | `null` | Parent agent ID for inheritance |
@@ -480,32 +505,6 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `task` | `string` | `""` | Task name label |
 | `condition` | `string` | `"always"` | `always`, `on_approve`, `on_reject`, `on_pass`, `auto`, or expression |
 | `payload` | `string` | `"{{ output }}"` | Jinja2 template: `{{ output }}`, `{{ input }}`, `{{ reject_reason }}`, `{{ gate_result }}` |
-
-### Gate Fields
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `type` | `"llm"` \| `"human"` | `"llm"` | LLM auto-evaluates or human manually approves |
-| `prompt` | `string` | `""` | Custom evaluation prompt (Jinja2: `{{ output }}`, `{{ input }}`) |
-| `model` | `string` | config default | Model override for LLM gate evaluation |
-| `max_retries` | `int` | `3` | Max reject retries before pipeline fails (prevents infinite loops) |
-
-### MCP Server Fields
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `server` | `string` | — | Server name (e.g., `"github"`, `"filesystem"`) |
-| `command` | `string` | `"npx"` | Custom command (default: `npx -y @modelcontextprotocol/server-{name}`) |
-| `args` | `list[string]` | `[]` | Command arguments |
-| `env` | `object` | `null` | Environment variables |
-
-### Human Input Fields
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `enabled` | `boolean` | `true` | Enable/disable human input |
-| `mode` | `"before"` \| `"on_demand"` \| `"both"` | `"on_demand"` | When to request input |
-| `prompt` | `string` | `""` | Custom question shown to user (for `before` mode) |
 
 ### Session Fields (type: session)
 
@@ -524,34 +523,38 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 
 ### config.yaml Reference
 
-Project-level configuration at `.aqm/config.yaml`. All fields are optional — defaults match built-in values.
+Project-level configuration at `.aqm/config.yaml`. All fields are optional.
 
 ```yaml
-# .aqm/config.yaml
 pipeline:
-  max_stages: 20              # Maximum pipeline stages before failure
-
+  max_stages: 20
 gate:
-  model: claude-sonnet-4-20250514   # Default model for LLM gate evaluation
-  timeout: 120                # Gate evaluation timeout (seconds)
-  system_prompt: |            # Custom gate evaluation prompt
-    You are a quality gate evaluator...
-
-timeouts:                     # Runtime subprocess timeouts (seconds)
+  model: claude-sonnet-4-20250514
+  timeout: 120
+timeouts:
   claude: 600
   gemini: 600
   codex: 600
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `pipeline.max_stages` | `int` | `20` | Maximum pipeline stages before auto-failure |
-| `gate.model` | `string` | `"claude-sonnet-4-20250514"` | Default model for LLM gate evaluation |
-| `gate.timeout` | `int` | `120` | Gate subprocess timeout (seconds) |
-| `gate.system_prompt` | `string` | built-in | Custom gate system prompt |
-| `timeouts.claude` | `int` | `600` | Claude runtime timeout |
-| `timeouts.gemini` | `int` | `600` | Gemini CLI runtime timeout |
-| `timeouts.codex` | `int` | `600` | Codex CLI runtime timeout |
+## Comparison
+
+| | LangGraph | CrewAI | AutoGen | aqm |
+|---|---|---|---|---|
+| Pipeline definition | Python | Python + YAML | Python | **YAML only** |
+| Pipeline sharing | ❌ | Paid | ❌ | **Open registry** |
+| Multi-agent discussion | ❌ | ❌ | Group chat | **Session nodes + consensus voting** |
+| Task decomposition | ❌ | ❌ | ❌ | **Chunk tracking** |
+| Context optimization | ❌ | Auto-summarize | ❌ | **5 strategies (55-85% savings)** |
+| Multi-LLM | LangChain | LiteLLM | Multiple | **CLI subprocess (no API keys)** |
+| Cost model | Per-token API | Per-token API | Per-token API | **CLI subscription (no extra fees)** |
+| Human-in-the-loop | Middleware | Webhooks | HumanProxy | **First-class per-agent config** |
+| Quality gates | ❌ | Callbacks | ❌ | **LLM + Human gates** |
+| Auto entry routing | ❌ | ❌ | ❌ | **LLM-based `entry_point: auto`** |
+| Fan-out parallel | Manual | Manual | ❌ | **Declarative** |
+| Real-time streaming | ❌ | ❌ | ❌ | **Token-level SSE** |
+| Web dashboard | Paid | Paid | ❌ | **Built-in (free)** |
+| Stars | 27k | 44k | 54k | New |
 
 ## Architecture
 
@@ -584,24 +587,6 @@ aqm/
 ├── registry.py           # GitHub pipeline registry
 └── cli.py                # Click CLI
 ```
-
-## Comparison
-
-| | LangGraph | CrewAI | OpenSWE | aqm |
-|---|---|---|---|---|
-| Pipeline definition | Python | Python | Code | **YAML** |
-| Pipeline sharing | ❌ | Paid | ❌ | **Open registry** |
-| Multi-agent discussion | ❌ | ❌ | ❌ | **Session nodes** |
-| Task decomposition | ❌ | ❌ | ❌ | **Chunk tracking** |
-| Context optimization | ❌ | ❌ | ❌ | **Per-agent context strategy** |
-| Multi-LLM | Manual | Limited | ❌ | **Claude + Gemini + Codex** |
-| Human-in-the-loop | ❌ | ❌ | ❌ | **`human_input` per agent** |
-| Approve/Reject gate | Interrupt | ❌ | ❌ | **First-class** |
-| Auto entry routing | ❌ | ❌ | ❌ | **LLM-based `entry_point: auto`** |
-| Fan-out parallel | Manual | ❌ | ❌ | **Declarative** |
-| File-based context | ❌ | ❌ | ❌ | **context.md + agent files** |
-| Real-time streaming | ❌ | ❌ | ❌ | **Token-level SSE streaming** |
-| Web dashboard | ❌ | Paid | ❌ | **Built-in** |
 
 ## Community
 
