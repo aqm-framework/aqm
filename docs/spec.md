@@ -189,7 +189,7 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 | `claude_code_flags` | array of string \| null | No | `null` | Extra CLI flags for `claude_code` runtime. |
 | `abstract` | boolean | No | `false` | If `true`, agent is a template only and is removed before execution. |
 | `extends` | string \| null | No | `null` | ID of parent agent. Child inherits parent fields via shallow merge; child fields win. |
-| `context_strategy` | `"own"` \| `"shared"` \| `"both"` | No | `"both"` | What context to inject into `{{ context }}`. Token optimization. |
+| `context_strategy` | `"none"` \| `"last_only"` \| `"own"` \| `"shared"` \| `"both"` | No | `"both"` | What context to inject into `{{ context }}`. Token optimization. |
 | `context_window` | integer | No | `3` | Number of recent stages to include in full (0 = all). |
 | `human_input` | HumanInputConfig \| boolean \| string \| null | No | `null` | Human-in-the-loop input configuration. |
 

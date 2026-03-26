@@ -218,9 +218,9 @@
         },
         "context_strategy": {
           "type": "string",
-          "enum": ["own", "shared", "both"],
+          "enum": ["none", "last_only", "own", "shared", "both"],
           "default": "both",
-          "description": "What context to inject into {{ context }}. 'own': agent's private notes only (token-efficient). 'shared': full shared context.md. 'both': shared + agent's notes (default, backward-compatible)."
+          "description": "What context to inject into {{ context }}. 'none': no context (max savings). 'last_only': previous stage only (~55% savings). 'own': agent's private notes only (~85% savings). 'shared': smart-windowed shared context.md. 'both': shared + agent's notes (default, backward-compatible)."
         },
         "abstract": {
           "type": "boolean",

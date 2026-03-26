@@ -150,7 +150,7 @@ class AgentDefinition(BaseModel):
     gate: Optional[GateConfig] = None
     mcp: list[MCPServerConfig] = Field(default_factory=list)
     claude_code_flags: Optional[list[str]] = None
-    context_strategy: Literal["own", "shared", "both"] = "both"
+    context_strategy: Literal["none", "last_only", "own", "shared", "both"] = "both"
     context_window: int = 3  # Number of recent stages to include in full (0 = all)
     human_input: Optional[HumanInputConfig] = None
     abstract: bool = False

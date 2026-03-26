@@ -120,7 +120,7 @@ class TestReadForStrategy:
         result = cf.read_for_strategy("planner", "both")
         assert "shared output" in result
         assert "private notes" in result
-        assert "Agent Notes (planner)" in result
+        assert "[notes:planner]" in result
 
     def test_strategy_both_no_agent_file(self, tmp_path):
         """If agent has no private file, 'both' returns shared only."""
@@ -131,7 +131,7 @@ class TestReadForStrategy:
         )
         result = cf.read_for_strategy("planner", "both")
         assert "shared output" in result
-        assert "Agent Notes" not in result
+        assert "[notes:" not in result
 
     def test_strategy_own_empty(self, tmp_path):
         cf = ContextFile(tmp_path / "task-1")
@@ -373,8 +373,8 @@ class TestReadSmart:
         self._build_context(cf, 5)
         result = cf.read_smart(context_window=2)
         # Stages 1-3 should be summarized, 4-5 in full
-        assert "Pipeline History (summarized)" in result
-        assert "Recent Stages (full)" in result
+        assert "[history]" in result
+        assert "[recent]" in result
         # Old stages: no full input/output
         assert "input for stage 1" not in result
         # Recent stages: full content
@@ -407,7 +407,7 @@ class TestReadSmart:
         cf = ContextFile(tmp_path / "task")
         self._build_context(cf, 6)
         result = cf.read_for_strategy("agent_6", "shared", context_window=2)
-        assert "Pipeline History (summarized)" in result
+        assert "[history]" in result
         assert "output for stage 6" in result
 
     def test_context_window_default(self):

@@ -47,8 +47,7 @@ class ContextFile:
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
         section = f"## [stage {stage_number}] {agent_id} — {task_name}\n"
-        section += f"**Time**: {now}\n"
-        section += f"**Status**: {status}\n"
+        section += f"**Status**: {status} | {now}\n"
         if reject_reason:
             section += f"**reject_reason**: {reject_reason}\n"
         section += f"\n### Input\n{input_text}\n\n### Output\n{output_text}\n\n---\n\n"
@@ -78,7 +77,7 @@ class ContextFile:
             return ""
         sections = content.split("---")
         sections = [s.strip() for s in sections if s.strip()]
-        return "\n\n---\n\n".join(sections[-n:])
+        return "\n---\n".join(sections[-n:])
 
     # ── Per-agent context ─────────────────────────────────────────────
 
@@ -147,32 +146,38 @@ class ContextFile:
         for sec in old:
             summaries.append(self._summarize_section(sec, self._preview_max_chars))
 
-        parts = ["## Pipeline History (summarized)"]
+        parts = ["[history]"]
         parts.extend(f"- {s}" for s in summaries)
         parts.append("")
-        parts.append("## Recent Stages (full)")
-        parts.append("\n\n---\n\n".join(recent))
+        parts.append("[recent]")
+        parts.append("\n---\n".join(recent))
 
         return "\n".join(parts)
 
     @staticmethod
-    def _summarize_section(section: str, max_chars: int = 120) -> str:
-        """Compress a context.md section into a one-line summary."""
+    def _summarize_section(section: str, max_chars: int = 80) -> str:
+        """Compress a context.md section into a compact one-line summary."""
         import re
 
         # Extract header: ## [stage N] agent_id — task_name
         header_match = re.match(r"##\s*\[([^\]]+)\]\s*(.*)", section)
-        header = header_match.group(0).lstrip("# ").strip() if header_match else "unknown"
+        if header_match:
+            tag = header_match.group(1).strip()
+            rest = header_match.group(2).strip()
+            # Extract just agent_id from "agent_id — task_name"
+            agent_id = rest.split("—")[0].split("\n")[0].strip() if rest else ""
+            header = f"{tag} {agent_id}".strip()
+        else:
+            header = "?"
 
         # Extract status
         status_match = re.search(r"\*\*Status\*\*:\s*(\S+)", section)
         status = status_match.group(1) if status_match else ""
 
-        # Extract output preview
+        # Extract output preview — first meaningful line only
         output_match = re.search(r"### Output\n(.+)", section, re.DOTALL)
         if output_match:
             output_raw = output_match.group(1).strip()
-            # First meaningful line, max 120 chars
             preview = ""
             for line in output_raw.split("\n"):
                 line = line.strip()
@@ -182,26 +187,32 @@ class ContextFile:
             if not preview:
                 preview = output_raw[:max_chars]
             if len(output_raw) > max_chars:
-                preview += "..."
+                preview += "…"
         else:
-            preview = "(no output)"
+            preview = ""
 
-        return f"{header} [{status}]: {preview}"
+        return f"{header}({status}): {preview}" if preview else f"{header}({status})"
 
     def read_for_strategy(
         self, agent_id: str, strategy: str, context_window: int = 3,
     ) -> str:
         """Return context based on the agent's context_strategy.
 
-        - ``own``:    agent's private file only (token-efficient)
-        - ``shared``: smart-windowed shared context
-        - ``both``:   smart-windowed shared + agent's notes (default)
+        - ``none``:      no context injected (minimizes tokens)
+        - ``last_only``: only the most recent stage output
+        - ``own``:       agent's private file only (token-efficient)
+        - ``shared``:    smart-windowed shared context
+        - ``both``:      smart-windowed shared + agent's notes (default)
 
         The ``context_window`` controls how many recent stages are
         included in full; older stages are compressed to summaries.
         Set to 0 for full (unwindowed) context.
         """
-        if strategy == "own":
+        if strategy == "none":
+            return ""
+        elif strategy == "last_only":
+            return self.read_latest(1)
+        elif strategy == "own":
             return self.read_agent_context(agent_id)
         elif strategy == "shared":
             return self.read_smart(context_window)
@@ -210,7 +221,7 @@ class ContextFile:
             own = self.read_agent_context(agent_id)
             if not own:
                 return shared
-            return f"{shared}\n\n--- Agent Notes ({agent_id}) ---\n\n{own}"
+            return f"{shared}\n\n[notes:{agent_id}]\n{own}"
 
     # ── Transcript (conversational sessions) ──────────────────────────
 

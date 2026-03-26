@@ -140,27 +140,44 @@ Each agent has a `context_strategy` that controls what `{{ context }}` contains.
 
 ```yaml
 agents:
-  - id: architect
+  - id: planner
     runtime: claude
-    context_strategy: own             # Only reads own notes
-    system_prompt: |
-      My notes: {{ context }}
-      Discussion: {{ transcript }}
-
-  - id: reviewer
-    runtime: claude
-    context_strategy: shared          # Only reads shared context.md
+    context_strategy: both            # Full visibility (default)
+    system_prompt: "Plan: {{ input }} Context: {{ context }}"
 
   - id: developer
     runtime: claude
-    context_strategy: both            # Reads shared + own (default)
+    context_strategy: last_only       # Only previous stage → 55% savings
+    context_window: 1
+    system_prompt: "Implement: {{ input }} Previous: {{ context }}"
+
+  - id: qa
+    runtime: claude
+    context_strategy: shared          # Smart-windowed history
+    context_window: 2
+    system_prompt: "Test: {{ input }} History: {{ context }}"
+
+  - id: deployer
+    runtime: claude
+    context_strategy: none            # No context → 85% savings
+    system_prompt: "Deploy: {{ input }}"
 ```
 
-| Strategy | `{{ context }}` Contains | Use Case |
-|---|---|---|
-| `both` (default) | Shared context.md + agent's private notes | Full visibility, backward-compatible |
-| `shared` | Shared context.md only | Agents that need full pipeline history |
-| `own` | Agent's private `agent_{id}.md` only | Token-efficient for focused agents |
+| Strategy | `{{ context }}` Contains | Token Savings | Use Case |
+|---|---|---|---|
+| `both` (default) | Shared context.md + agent's private notes | — | Full visibility, backward-compatible |
+| `shared` | Smart-windowed shared context.md | ~same | Agents that need pipeline history |
+| `last_only` | Only the most recent stage output | **~55%** | Agents that only need the previous step |
+| `own` | Agent's private `agent_{id}.md` only | **~85%** | Focused agents with their own notes |
+| `none` | Empty (no context injected) | **~85%** | Self-contained agents with no context needed |
+
+Benchmarked on a 10-agent pipeline (see `tests/bench_token_efficiency.py`):
+```
+Strategy      Total Tokens   Savings
+both              12,233        0%
+last_only          5,504       55%
+none               1,873       85%
+```
 
 **File structure per task:**
 ```
@@ -445,7 +462,7 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `runtime` | `"claude"` \| `"gemini"` \| `"codex"` | — | Required for `type: agent` |
 | `model` | `string` | CLI default | Model override |
 | `system_prompt` | `string` | `""` | Jinja2 template: `{{ input }}`, `{{ context }}`, `{{ transcript }}`, `{{ chunks }}` |
-| `context_strategy` | `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
+| `context_strategy` | `"none"` \| `"last_only"` \| `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
 | `context_window` | `int` | `3` | Recent stages in full; older stages summarized (0 = all) |
 | `human_input` | `boolean` \| `object` | `null` | Human-in-the-loop input (`before`, `on_demand`, `both`) |
 | `handoffs` | `list[Handoff]` | `[]` | Routing rules (see below) |
