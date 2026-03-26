@@ -1,10 +1,8 @@
-# aqm
+# aqm &nbsp;|&nbsp; [한국어](docs/README.ko.md)
 
 **Build AI agent teams in YAML. No code. No API keys. Just pipelines.**
 
 An orchestration framework where multiple AI agents pass tasks through **explicit queues** — or **discuss in real-time sessions** until consensus. Define once, run anywhere, share with anyone.
-
-**[한국어 문서 (Korean)](docs/README.ko.md)**
 
 ```
   [user] ──input──► [planner] ──► [reviewer] ──approve──► [design_session] ──► [implementer]
