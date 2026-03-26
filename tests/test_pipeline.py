@@ -499,3 +499,86 @@ class TestHandoffRouting:
         assert "router" in agents
         assert "a" in agents
         assert "b" in agents
+
+
+# ── Gate Reject Retry Limit ────────────────────────────────────────
+
+
+class TestGateRejectRetryLimit:
+    def test_reject_loop_fails_after_max_retries(self, tmp_project):
+        """Gate that always rejects should fail after max_retries, not loop forever."""
+        from unittest.mock import MagicMock, patch
+
+        from aqm.core.pipeline import Pipeline
+        from aqm.core.config import ProjectConfig
+
+        yaml_content = {
+            "agents": [
+                {
+                    "id": "worker",
+                    "runtime": "claude",
+                    "system_prompt": "Work: {{ input }}",
+                    "gate": {
+                        "type": "llm",
+                        "prompt": "Review this",
+                        "max_retries": 2,
+                    },
+                    "handoffs": [
+                        {
+                            "to": "worker",
+                            "condition": "on_reject",
+                            "payload": "{{ output }}\nREJECT: {{ reject_reason }}",
+                        },
+                    ],
+                },
+            ]
+        }
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
+        yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
+
+        agents = load_agents(yaml_path)
+        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
+        pipeline = Pipeline(agents, queue, tmp_project)
+
+        # Mock runtime
+        mock_rt = MagicMock()
+        mock_rt.name = "mock"
+        mock_rt.run.return_value = "some output"
+        pipeline._runtimes["claude"] = mock_rt
+
+        # Mock gate to always reject
+        mock_gate = MagicMock()
+        mock_gate.evaluate.return_value = GateResult(
+            decision="rejected", reason="not good enough"
+        )
+        pipeline._get_gate = MagicMock(return_value=mock_gate)
+
+        task = Task(description="test reject loop")
+        queue.push(task, "worker")
+        result = pipeline.run_task(task, "worker")
+
+        assert result.status == TaskStatus.failed
+        assert "exceeded max gate retries" in result.metadata.get("error", "")
+        # Should have run max_retries + 1 times (initial + retries), then failed
+        # max_retries=2: run 1 (reject count 1), run 2 (reject count 2), run 3 (reject count 3 > 2 → fail)
+        assert mock_rt.run.call_count == 3
+
+    def test_reject_loop_default_max_retries(self, tmp_project):
+        """Default max_retries is 3."""
+        yaml_content = {
+            "agents": [
+                {
+                    "id": "worker",
+                    "runtime": "claude",
+                    "gate": {"type": "llm", "prompt": "Review"},
+                    "handoffs": [
+                        {"to": "worker", "condition": "on_reject"},
+                    ],
+                },
+            ]
+        }
+        yaml_path = tmp_project / ".aqm" / "agents.yaml"
+        yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
+
+        agents = load_agents(yaml_path)
+        assert agents["worker"].gate.max_retries == 3

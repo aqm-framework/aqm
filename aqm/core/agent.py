@@ -67,6 +67,7 @@ class GateConfig(BaseModel):
     type: Literal["llm", "human"] = "llm"
     prompt: str = ""
     model: Optional[str] = None
+    max_retries: int = 3
 
 
 class MCPServerConfig(BaseModel):

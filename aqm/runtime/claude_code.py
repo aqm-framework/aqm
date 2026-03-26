@@ -159,6 +159,18 @@ class ClaudeCodeRuntime(AbstractRuntime):
         if agent.claude_code_flags:
             cmd.extend(agent.claude_code_flags)
 
+        # --- Non-interactive permission handling ----------------------------------
+        # In --print mode, stdin is not available so Claude cannot prompt for
+        # tool permissions.  Auto-add --dangerously-skip-permissions to prevent
+        # the process from hanging indefinitely.
+        if "--print" in cmd and "--dangerously-skip-permissions" not in cmd:
+            cmd.append("--dangerously-skip-permissions")
+            logger.warning(
+                "[ClaudeCodeRuntime] Auto-adding --dangerously-skip-permissions "
+                "for non-interactive --print mode (agent=%s)",
+                agent.id,
+            )
+
         # --- MCP server config ---------------------------------------------------
         mcp_config_path: Path | None = None
         if agent.mcp:
