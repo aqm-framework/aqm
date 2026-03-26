@@ -553,7 +553,6 @@ timeouts:
 | Fan-out parallel | Manual | Manual | ❌ | **Declarative** |
 | Real-time streaming | ❌ | ❌ | ❌ | **Token-level SSE** |
 | Web dashboard | Paid | Paid | ❌ | **Built-in (free)** |
-| Stars | 27k | 44k | 54k | New |
 
 ## Architecture
 
