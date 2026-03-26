@@ -66,8 +66,20 @@ class RestartRequest(BaseModel):
     from_stage: Optional[int] = None
 
 
+class CancelRequest(BaseModel):
+    reason: Optional[str] = None
+
+
 class PriorityRequest(BaseModel):
     priority: str  # critical, high, normal, low
+
+
+class AddChunkRequest(BaseModel):
+    description: str
+
+
+class UpdateChunkRequest(BaseModel):
+    status: str  # "pending" | "in_progress" | "done"
 
 
 # ---------------------------------------------------------------------------
@@ -469,9 +481,10 @@ def create_tasks_router(project_root: Path) -> APIRouter:
     # ── Cancel ─────────────────────────────────────────────────────────
 
     @router.post("/api/tasks/{task_id}/cancel")
-    async def api_cancel(task_id: str):
+    async def api_cancel(task_id: str, req: CancelRequest = None):
         from aqm.core.pipeline import cancel_task as signal_cancel
 
+        reason = (req.reason if req and req.reason else "Cancelled by user")
         queue = _get_queue()
         try:
             task = queue.get(task_id)
@@ -480,19 +493,14 @@ def create_tasks_router(project_root: Path) -> APIRouter:
             if task.status.value in ("completed", "failed", "cancelled"):
                 raise HTTPException(400, f"Task already {task.status.value}")
 
-            # Allow cancelling stalled tasks too
-            # (stalled = server crashed while task was in_progress)
-
             if task.status == TaskStatus.in_progress:
-                # Signal the pipeline loop to stop at next check
                 signal_cancel(task_id)
 
-            # Update status immediately in DB for all cancellable states
             task.status = TaskStatus.cancelled
-            task.metadata["cancel_reason"] = "Cancelled by user"
+            task.metadata["cancel_reason"] = reason
             task.touch()
             queue.update(task)
-            broadcast_event(task_id, "task_cancelled", {"reason": "Cancelled by user"})
+            broadcast_event(task_id, "task_cancelled", {"reason": reason})
             return {"id": task_id, "status": "cancelled", "message": "Task cancelled"}
         finally:
             queue.close()
@@ -532,12 +540,6 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         }
 
     # ── Chunks ─────────────────────────────────────────────────────────
-
-    class AddChunkRequest(BaseModel):
-        description: str
-
-    class UpdateChunkRequest(BaseModel):
-        status: str  # "pending" | "in_progress" | "done"
 
     @router.get("/api/tasks/{task_id}/chunks")
     async def api_list_chunks(task_id: str):

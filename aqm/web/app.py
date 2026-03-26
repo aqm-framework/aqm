@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from aqm.core.agent import load_agents
 from aqm.core.context_file import ContextFile
@@ -17,9 +17,9 @@ from aqm.core.project import (
     get_agents_yaml_path,
     get_db_path,
     get_default_pipeline,
+    get_pipeline_path,
     get_tasks_dir,
     list_pipelines,
-    set_default_pipeline,
 )
 from aqm.queue.sqlite import SQLiteQueue
 
@@ -35,12 +35,7 @@ def create_app(project_root: Path) -> FastAPI:
         return SQLiteQueue(db_path)
 
     def _get_agents(pipeline: str | None = None) -> tuple[dict, str | None]:
-        """Load agents, returning (agents_dict, error_message).
-
-        If required params are missing or YAML is invalid, returns
-        an empty dict with a user-friendly error message instead of
-        letting the exception propagate as a 500.
-        """
+        """Load agents, returning (agents_dict, error_message)."""
         try:
             path = get_agents_yaml_path(project_root, pipeline)
             if path.exists():
@@ -92,10 +87,41 @@ def create_app(project_root: Path) -> FastAPI:
         pipelines = list_pipelines(project_root)
         current = pipeline or get_default_pipeline(project_root) or "default"
         agents, agent_error = _get_agents(current)
+        queue = _get_queue()
+        try:
+            recent_tasks = queue.list_tasks()[:20]
+        finally:
+            queue.close()
         return render_agents(
             agents, pipelines=pipelines, current_pipeline=current,
-            agent_error=agent_error,
+            agent_error=agent_error, recent_tasks=recent_tasks,
         )
+
+    @app.get("/pipelines", response_class=HTMLResponse)
+    async def pipelines_page(edit: str | None = None):
+        from aqm.web.pages.pipelines import render_pipelines
+        from aqm.web.api.pipelines import CreatePipelineRequest
+        pipelines_list = list_pipelines(project_root)
+        default = get_default_pipeline(project_root) or "default"
+        pip_data = []
+        for name in pipelines_list:
+            try:
+                path = get_pipeline_path(project_root, name)
+                content = path.read_text(encoding="utf-8")
+                agent_count = content.count("- id:")
+                pip_data.append({"name": name, "agent_count": agent_count, "is_default": name == default})
+            except FileNotFoundError:
+                pip_data.append({"name": name, "agent_count": 0, "is_default": name == default})
+
+        edit_content = None
+        if edit:
+            try:
+                path = get_pipeline_path(project_root, edit)
+                edit_content = path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                pass
+
+        return render_pipelines(pip_data, default, edit_name=edit, edit_content=edit_content)
 
     @app.get("/tasks/{task_id}", response_class=HTMLResponse)
     async def task_detail(task_id: str):
@@ -123,32 +149,61 @@ def create_app(project_root: Path) -> FastAPI:
         from aqm.web.pages.validate import render_validate
         return render_validate()
 
-    # ── Pipeline API ───────────────────────────────────────────────────
+    # ── Agents JSON API ───────────────────────────────────────────────
 
-    @app.get("/api/pipelines")
-    async def api_list_pipelines():
-        pipelines = list_pipelines(project_root)
-        default = get_default_pipeline(project_root) or "default"
-        return {"pipelines": pipelines, "default": default}
+    @app.get("/api/agents")
+    async def api_agents(pipeline: str | None = None):
+        agents, error = _get_agents(pipeline)
+        if error:
+            raise HTTPException(400, error)
+        return [
+            {
+                "id": a.id,
+                "name": a.name,
+                "runtime": a.runtime,
+                "type": a.type,
+                "model": a.model,
+                "gate": {"type": a.gate.type, "prompt": a.gate.prompt, "max_retries": a.gate.max_retries} if a.gate else None,
+                "mcp": [{"server": m.server} for m in a.mcp],
+                "handoffs": [{"to": h.to, "condition": h.condition, "task": h.task} for h in a.handoffs],
+                "context_strategy": a.context_strategy,
+                "human_input": {"enabled": a.human_input.enabled, "mode": a.human_input.mode} if a.human_input else None,
+            }
+            for a in agents.values()
+        ]
 
-    @app.post("/api/pipelines/default")
-    async def api_set_default_pipeline(body: dict):
-        name = body.get("name")
-        if not name:
-            raise HTTPException(400, "Missing 'name' field")
-        pipelines = list_pipelines(project_root)
-        if name not in pipelines:
-            raise HTTPException(404, f"Pipeline '{name}' not found")
-        set_default_pipeline(project_root, name)
-        return {"default": name}
+    # ── Context API ───────────────────────────────────────────────────
+
+    @app.get("/api/tasks/{task_id}/context")
+    async def api_get_context(task_id: str):
+        tasks_dir = get_tasks_dir(project_root)
+        ctx_file = ContextFile(tasks_dir / task_id)
+        content = ctx_file.read()
+        if not content:
+            raise HTTPException(404, "No context file for this task")
+        return PlainTextResponse(content, media_type="text/plain")
+
+    # ── Global SSE (dashboard real-time counters) ───────────────────
+
+    @app.get("/api/events")
+    async def global_events():
+        from starlette.responses import StreamingResponse
+        from aqm.web.api.sse import subscribe_global
+        return StreamingResponse(
+            subscribe_global(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     # ── API Routes ────────────────────────────────────────────────────
 
     from aqm.web.api.tasks import create_tasks_router
+    from aqm.web.api.pipelines import create_pipelines_router
     from aqm.web.api.registry import create_registry_router
     from aqm.web.api.validate import create_validate_router
 
     app.include_router(create_tasks_router(project_root))
+    app.include_router(create_pipelines_router(project_root))
     app.include_router(create_registry_router(project_root))
     app.include_router(create_validate_router(project_root))
 

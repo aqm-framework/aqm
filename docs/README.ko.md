@@ -448,10 +448,17 @@ agents:
 ### 파이프라인 레지스트리 (공유 & 탐색)
 
 ```bash
-aqm search "code review"              # 커뮤니티 파이프라인 검색
-aqm pull security-audit               # 한 명령으로 설치
-aqm publish --name my-pipeline        # 내 파이프라인 공유
+aqm search "code review"              # 커뮤니티 파이프라인 검색 (버전 포함)
+aqm pull security-audit               # 최신 버전 설치
+aqm pull security-audit@1.0.0         # 특정 버전 설치
+aqm pipeline versions security-audit  # 사용 가능한 버전 목록
+aqm publish --name my-pipeline        # 공유 (자동 버전 증가)
+aqm publish --version 2.0.0           # 특정 버전으로 공유
 ```
+
+파이프라인은 시맨틱 버저닝을 지원합니다. 각 버전은 레지스트리에 독립적으로 저장되어, 팀에서 특정 버전을 고정하거나 항상 최신 버전을 pull할 수 있습니다.
+
+웹 대시보드에서도 버전 드롭다운으로 특정 버전을 pull할 수 있으며, **비주얼 에이전트 에디터**로 YAML 작성 없이 에이전트를 추가/수정/삭제할 수 있습니다.
 
 ## CLI 레퍼런스
 
@@ -490,9 +497,12 @@ aqm pipeline create review --ai       # AI로 생성
 aqm pipeline default review           # 기본 설정
 
 # 레지스트리
-aqm search "code review"              # 검색
-aqm pull code-review-pipeline         # 설치
-aqm publish --name my-pipeline        # 공유
+aqm search "code review"              # 검색 (버전 포함)
+aqm pull code-review-pipeline         # 최신 버전 설치
+aqm pull code-review@1.0.0            # 특정 버전 설치
+aqm pipeline versions code-review     # 버전 목록
+aqm publish --name my-pipeline        # 공유 (자동 버전 증가)
+aqm publish --version 2.0.0           # 특정 버전으로 공유
 
 # 대시보드
 aqm serve                             # 웹 UI (localhost:8000)

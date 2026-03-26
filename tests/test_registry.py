@@ -95,10 +95,11 @@ class TestGitHubRawUrl:
 class TestPullFromGitHub:
     @patch("aqm.registry._fetch_url")
     def test_pull_success(self, mock_fetch):
-        """Successfully pull a pipeline from GitHub."""
+        """Successfully pull a pipeline from GitHub (legacy unversioned)."""
         mock_fetch.side_effect = [
-            SAMPLE_YAML,  # agents.yaml
-            json.dumps(SAMPLE_META),  # meta.json
+            None,  # versions.json not found (legacy)
+            SAMPLE_YAML,  # agents.yaml (legacy path)
+            json.dumps(SAMPLE_META),  # meta.json (legacy path)
         ]
 
         result = pull_from_github("test-pipeline")
@@ -113,9 +114,10 @@ class TestPullFromGitHub:
 
     @patch("aqm.registry._fetch_url")
     def test_pull_yaml_only(self, mock_fetch):
-        """Pull succeeds even without meta.json."""
+        """Pull succeeds even without meta.json (legacy)."""
         mock_fetch.side_effect = [
-            SAMPLE_YAML,  # agents.yaml
+            None,  # versions.json not found
+            SAMPLE_YAML,  # agents.yaml (legacy)
             None,  # meta.json not found
         ]
 
@@ -139,14 +141,14 @@ class TestPullFromGitHub:
     @patch("aqm.registry._fetch_url")
     def test_pull_custom_repo(self, mock_fetch):
         """Pull from a custom registry repo."""
-        mock_fetch.side_effect = [SAMPLE_YAML, None]
+        mock_fetch.side_effect = [None, SAMPLE_YAML, None]  # versions.json, yaml, meta
 
         result = pull_from_github("my-pipeline", repo="myorg/my-registry")
 
         assert result is not None
-        # Verify the correct URL was called
-        call_url = mock_fetch.call_args_list[0][0][0]
-        assert "myorg/my-registry" in call_url
+        # Verify the correct repo was used in URL
+        call_urls = [c[0][0] for c in mock_fetch.call_args_list]
+        assert any("myorg/my-registry" in u for u in call_urls)
 
 
 # ── Search ───────────────────────────────────────────────────────────────
@@ -312,7 +314,7 @@ class TestCLIIntegration:
         from aqm.cli import cli
         from aqm.core.project import init_project
 
-        mock_fetch.side_effect = [SAMPLE_YAML, None]
+        mock_fetch.side_effect = [None, SAMPLE_YAML, None]  # versions.json, yaml, meta
 
         root = init_project(tmp_path)
         runner = CliRunner()

@@ -1,4 +1,4 @@
-"""Registry API endpoints — search, pull, publish."""
+"""Registry API endpoints — search, pull, publish with version support."""
 
 from __future__ import annotations
 
@@ -10,13 +10,14 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from aqm.core.project import get_agents_yaml_path
+from aqm.core.project import get_agents_yaml_path, save_pipeline
 
 logger = logging.getLogger(__name__)
 
 
 class PullRequest(BaseModel):
     pipeline_name: str
+    version: Optional[str] = None
     repo: Optional[str] = None
     offline: bool = False
 
@@ -24,6 +25,7 @@ class PullRequest(BaseModel):
 class PublishRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    version: Optional[str] = None
     local_only: bool = False
 
 
@@ -36,7 +38,7 @@ def create_registry_router(project_root: Path) -> APIRouter:
         query: Optional[str] = Query(None),
         offline: bool = Query(False),
     ):
-        from aqm.registry import search_github, DEFAULT_REGISTRY_REPO
+        from aqm.registry import search_github, DEFAULT_REGISTRY_REPO, list_local_versions
 
         results = []
 
@@ -49,74 +51,101 @@ def create_registry_router(project_root: Path) -> APIRouter:
                     "description": m.description,
                     "author": m.author,
                     "version": m.version,
+                    "versions": m.versions,
+                    "latest": m.latest,
                     "tags": m.tags,
                     "agents_count": m.agents_count,
                     "source": "github",
                 })
 
-        # Local registry
+        # Local registry (versioned)
         seen = {r["name"] for r in results}
         local_dir = Path.home() / ".aqm" / "registry"
         if local_dir.is_dir():
             for d in sorted(local_dir.iterdir()):
-                if d.is_dir() and (d / "agents.yaml").exists():
-                    if d.name not in seen:
-                        desc = ""
-                        meta_path = d / "meta.json"
+                if not d.is_dir():
+                    continue
+                local_versions = list_local_versions(d.name)
+                # Check if there's any version or legacy agents.yaml
+                has_content = local_versions or (d / "agents.yaml").exists()
+                if has_content and d.name not in seen:
+                    desc = ""
+                    # Try to read meta from latest version
+                    if local_versions:
+                        latest_v = local_versions[-1]
+                        meta_path = d / latest_v / "meta.json"
                         if meta_path.exists():
                             try:
                                 meta = json.loads(meta_path.read_text("utf-8"))
                                 desc = meta.get("description", "")
                             except Exception:
                                 pass
-                        if not query or query.lower() in d.name.lower() or query.lower() in desc.lower():
-                            results.append({
-                                "name": d.name,
-                                "description": desc,
-                                "author": "",
-                                "version": "",
-                                "tags": [],
-                                "agents_count": 0,
-                                "source": "local",
-                            })
+                    if not query or query.lower() in d.name.lower() or query.lower() in desc.lower():
+                        results.append({
+                            "name": d.name,
+                            "description": desc,
+                            "author": "",
+                            "version": local_versions[-1] if local_versions else "",
+                            "versions": local_versions,
+                            "latest": local_versions[-1] if local_versions else "",
+                            "tags": [],
+                            "agents_count": 0,
+                            "source": "local",
+                        })
 
         return results
 
     @router.post("/api/registry/pull")
     async def api_pull(req: PullRequest):
         import yaml as _yaml
-        from aqm.registry import pull_from_github, DEFAULT_REGISTRY_REPO
+        from aqm.registry import (
+            DEFAULT_REGISTRY_REPO,
+            parse_name_version,
+            pull_from_github,
+            pull_from_local,
+            save_to_local_registry,
+        )
+
+        name, inline_version = parse_name_version(req.pipeline_name)
+        version = req.version or inline_version
 
         content = None
         source = ""
+        pulled_version = ""
 
         # GitHub
         if not req.offline:
-            result = pull_from_github(req.pipeline_name, repo=req.repo or DEFAULT_REGISTRY_REPO)
+            result = pull_from_github(name, version=version, repo=req.repo or DEFAULT_REGISTRY_REPO)
             if result:
                 content, meta = result
+                pulled_version = meta.version or version or ""
                 source = "github"
 
         # Local registry
         if content is None:
-            local_path = Path.home() / ".aqm" / "registry" / req.pipeline_name / "agents.yaml"
-            if local_path.exists():
-                content = local_path.read_text(encoding="utf-8")
+            result = pull_from_local(name, version=version)
+            if result:
+                content, meta = result
+                pulled_version = meta.version or version or ""
                 source = "local"
 
         if content is None:
-            raise HTTPException(404, f"Pipeline '{req.pipeline_name}' not found")
+            raise HTTPException(404, f"Pipeline '{name}' not found")
 
-        # Write to project
-        agents_yaml_path.write_text(content, encoding="utf-8")
+        # Save to project pipelines
+        save_pipeline(project_root, name, content)
 
-        # Count agents
+        # Cache in local registry
+        if pulled_version:
+            save_to_local_registry(name, pulled_version, content)
+
         data = _yaml.safe_load(content)
         agents_count = len(data.get("agents", []))
 
         return {
             "success": True,
-            "pipeline_name": req.pipeline_name,
+            "pipeline_name": name,
+            "version": pulled_version,
             "source": source,
             "agents_count": agents_count,
         }
@@ -124,6 +153,13 @@ def create_registry_router(project_root: Path) -> APIRouter:
     @router.post("/api/registry/publish")
     async def api_publish(req: PublishRequest):
         import yaml as _yaml
+        from aqm.registry import (
+            DEFAULT_REGISTRY_REPO,
+            increment_version,
+            list_versions,
+            publish_to_github,
+            save_to_local_registry,
+        )
 
         if not agents_yaml_path.exists():
             raise HTTPException(400, "No agents.yaml found")
@@ -137,34 +173,37 @@ def create_registry_router(project_root: Path) -> APIRouter:
         pipeline_name = req.name or project_root.name
         agents_count = len(data.get("agents", []))
 
-        # Save to local registry
-        local_dir = Path.home() / ".aqm" / "registry" / pipeline_name
-        local_dir.mkdir(parents=True, exist_ok=True)
-        (local_dir / "agents.yaml").write_text(content, encoding="utf-8")
+        # Determine version
+        version = req.version
+        if not version:
+            existing = list_versions(pipeline_name, repo=DEFAULT_REGISTRY_REPO)
+            all_v = sorted(set(existing.get("github", []) + existing.get("local", [])))
+            version = increment_version(all_v[-1]) if all_v else "1.0.0"
 
-        meta = {
+        # Save to local registry (versioned)
+        meta_dict = {
             "name": pipeline_name,
             "description": req.description or "",
+            "version": version,
             "agents_count": agents_count,
         }
-        (local_dir / "meta.json").write_text(
-            json.dumps(meta, indent=2) + "\n", encoding="utf-8"
-        )
+        ver_dir = save_to_local_registry(pipeline_name, version, content, meta_dict)
 
         result = {
             "success": True,
             "name": pipeline_name,
+            "version": version,
             "agents_count": agents_count,
-            "location": str(local_dir),
+            "location": str(ver_dir),
         }
 
         # GitHub publish
         if not req.local_only:
-            from aqm.registry import publish_to_github, DEFAULT_REGISTRY_REPO
             pub_result = publish_to_github(
                 agents_yaml_path=agents_yaml_path,
                 pipeline_name=pipeline_name,
                 description=req.description or "",
+                version=version,
                 repo=DEFAULT_REGISTRY_REPO,
             )
             if pub_result.success:
@@ -173,5 +212,24 @@ def create_registry_router(project_root: Path) -> APIRouter:
                 result["github_error"] = pub_result.error
 
         return result
+
+    @router.get("/api/registry/{name}/versions")
+    async def api_list_versions(
+        name: str,
+        offline: bool = Query(False),
+    ):
+        from aqm.registry import DEFAULT_REGISTRY_REPO, list_versions as _list_versions
+
+        if offline:
+            from aqm.registry import list_local_versions
+            return {"name": name, "versions": list_local_versions(name), "github": [], "local": list_local_versions(name)}
+
+        result = _list_versions(name, repo=DEFAULT_REGISTRY_REPO)
+        return {
+            "name": name,
+            "github": result.get("github", []),
+            "local": result.get("local", []),
+            "versions": sorted(set(result.get("github", []) + result.get("local", []))),
+        }
 
     return router
