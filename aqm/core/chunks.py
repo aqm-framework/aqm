@@ -69,11 +69,15 @@ class ChunkManager:
         self.task_dir.mkdir(parents=True, exist_ok=True)
 
     def load(self) -> ChunkList:
-        """Load chunks from disk. Returns empty list if file doesn't exist."""
+        """Load chunks from disk. Returns empty list if file doesn't exist or is corrupted."""
         if not self.chunks_path.exists():
             return ChunkList()
-        raw = self.chunks_path.read_text(encoding="utf-8")
-        return ChunkList.model_validate_json(raw)
+        try:
+            raw = self.chunks_path.read_text(encoding="utf-8")
+            return ChunkList.model_validate_json(raw)
+        except Exception as exc:
+            logger.warning("Failed to load %s, using empty: %s", self.chunks_path, exc)
+            return ChunkList()
 
     def save(self, chunk_list: ChunkList) -> None:
         """Persist chunks to disk."""
@@ -167,13 +171,14 @@ class ChunkManager:
         cl = self.load()
         if cl.chunks:
             return  # Already initialised
+        existing_ids = {c.id for c in cl.chunks}
         for desc in initial:
-            existing_ids = {c.id for c in cl.chunks}
             chunk = Chunk(
                 id=_generate_chunk_id(existing_ids),
                 description=desc,
                 created_by=created_by,
             )
+            existing_ids.add(chunk.id)
             cl.chunks.append(chunk)
         self.save(cl)
         logger.info("[ChunkManager] Initialised %d chunks from config", len(initial))

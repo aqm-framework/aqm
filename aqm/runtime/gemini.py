@@ -241,18 +241,23 @@ class GeminiCLIRuntime(AbstractRuntime):
                 except Exception:
                     pass
 
-            proc.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
             raise RuntimeError(
                 f"Gemini CLI timed out (agent={agent.id})"
             )
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
 
         if proc.returncode != 0:
-            error_msg = (
-                proc.stderr.read().strip() if proc.stderr  # type: ignore[union-attr]
-                else f"Exit code: {proc.returncode}"
-            )
+            try:
+                error_msg = (
+                    proc.stderr.read().strip() if proc.stderr  # type: ignore[union-attr]
+                    else f"Exit code: {proc.returncode}"
+                )
+            except (ValueError, OSError):
+                error_msg = f"Exit code: {proc.returncode}"
             logger.error(
                 "[GeminiCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
             )

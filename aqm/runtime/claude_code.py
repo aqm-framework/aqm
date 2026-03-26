@@ -454,20 +454,24 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     if result_text and not output_parts:
                         output_parts.append(result_text)
 
-            sel.close()
-            proc.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
-            sel.close()
-            proc.kill()
             raise RuntimeError(
                 f"Claude Code timed out (agent={agent.id})"
             )
+        finally:
+            sel.close()
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
 
         if proc.returncode != 0:
-            error_msg = (
-                proc.stderr.read().strip() if proc.stderr
-                else f"Exit code: {proc.returncode}"
-            )
+            try:
+                error_msg = (
+                    proc.stderr.read().strip() if proc.stderr
+                    else f"Exit code: {proc.returncode}"
+                )
+            except (ValueError, OSError):
+                error_msg = f"Exit code: {proc.returncode}"
             logger.error(
                 "[ClaudeCodeRuntime] Agent '%s' failed: %s",
                 agent.id,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -33,6 +34,8 @@ ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;
 
 
 class SQLiteQueue(AbstractQueue):
+    _lock = threading.Lock()
+
     def __init__(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,20 +76,44 @@ class SQLiteQueue(AbstractQueue):
         self._conn.commit()
 
     def pop(self, queue_name: str) -> Optional[Task]:
-        cursor = self._conn.execute(
-            "SELECT data FROM tasks WHERE queue_name = ? AND status = ? "
-            "ORDER BY priority ASC, created_at ASC LIMIT 1",
-            (queue_name, TaskStatus.pending.value),
-        )
-        row = cursor.fetchone()
-        if not row:
-            return None
+        # Use lock + BEGIN IMMEDIATE to prevent race conditions where
+        # two concurrent callers SELECT the same pending task.
+        with self._lock:
+            return self._pop_locked(queue_name)
 
-        task = Task.model_validate_json(row[0])
-        task.status = TaskStatus.in_progress
-        task.touch()
-        self.update(task)
-        return task
+    def _pop_locked(self, queue_name: str) -> Optional[Task]:
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = self._conn.execute(
+                "SELECT data FROM tasks WHERE queue_name = ? AND status = ? "
+                "ORDER BY priority ASC, created_at ASC LIMIT 1",
+                (queue_name, TaskStatus.pending.value),
+            )
+            row = cursor.fetchone()
+            if not row:
+                self._conn.execute("COMMIT")
+                return None
+
+            task = Task.model_validate_json(row[0])
+            task.status = TaskStatus.in_progress
+            task.touch()
+            self._conn.execute(
+                "UPDATE tasks SET queue_name = ?, status = ?, priority = ?, "
+                "data = ?, updated_at = ? WHERE id = ?",
+                (
+                    task.current_queue or "",
+                    task.status.value,
+                    task.priority.value,
+                    task.model_dump_json(),
+                    task.updated_at.isoformat(),
+                    task.id,
+                ),
+            )
+            self._conn.execute("COMMIT")
+            return task
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
 
     def peek(self, queue_name: str) -> Optional[Task]:
         cursor = self._conn.execute(

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class ContextFile:
@@ -68,7 +71,11 @@ class ContextFile:
         """Return the full contents of context.md."""
         if not self.context_path.exists():
             return ""
-        return self.context_path.read_text(encoding="utf-8")
+        try:
+            return self.context_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            logger.warning("UTF-8 decode failed for %s, using replace mode", self.context_path)
+            return self.context_path.read_text(encoding="utf-8", errors="replace")
 
     def read_latest(self, n: int = 1) -> str:
         """Return the last n sections."""
@@ -90,7 +97,11 @@ class ContextFile:
         path = self.agent_context_path(agent_id)
         if not path.exists():
             return ""
-        return path.read_text(encoding="utf-8")
+        try:
+            return path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            logger.warning("UTF-8 decode failed for %s, using replace mode", path)
+            return path.read_text(encoding="utf-8", errors="replace")
 
     def append_agent_context(
         self,

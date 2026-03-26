@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -15,6 +16,8 @@ _push_counter = 0
 
 class FileQueue(AbstractQueue):
     """Simple queue implementation that stores tasks as JSON files."""
+
+    _pop_lock = threading.Lock()
 
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
@@ -50,16 +53,17 @@ class FileQueue(AbstractQueue):
         path.write_text(task.model_dump_json(indent=2), encoding="utf-8")
 
     def pop(self, queue_name: str) -> Optional[Task]:
-        q_dir = self._queue_dir(queue_name)
-        files = sorted(q_dir.glob("*.json"))
-        for f in files:
-            task = Task.model_validate_json(f.read_text(encoding="utf-8"))
-            if task.status == TaskStatus.pending:
-                task.status = TaskStatus.in_progress
-                task.touch()
-                f.write_text(task.model_dump_json(indent=2), encoding="utf-8")
-                return task
-        return None
+        with self._pop_lock:
+            q_dir = self._queue_dir(queue_name)
+            files = sorted(q_dir.glob("*.json"))
+            for f in files:
+                task = Task.model_validate_json(f.read_text(encoding="utf-8"))
+                if task.status == TaskStatus.pending:
+                    task.status = TaskStatus.in_progress
+                    task.touch()
+                    f.write_text(task.model_dump_json(indent=2), encoding="utf-8")
+                    return task
+            return None
 
     def peek(self, queue_name: str) -> Optional[Task]:
         q_dir = self._queue_dir(queue_name)

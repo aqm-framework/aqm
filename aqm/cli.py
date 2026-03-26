@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 from rich.console import Console
@@ -456,14 +457,18 @@ def _init_from_ai(target: Path | None) -> None:
         refined = click.prompt("  Refined description (or press Enter to retry)", default=description)
         console.print(f"\n[dim]Regenerating...[/]")
         try:
-            generated = generate_agents_yaml(
-                refined,
-                project_dir=project_dir if has_project else None,
-                qa_context=qa_context,
-                deep_analysis=deep_analysis_text,
-                on_status=_print_status,
-                model=selected_model,
-            )
+            with console.status("[bold cyan]Regenerating...[/]", spinner="dots") as regen_status:
+                def _regen_status(msg: str) -> None:
+                    regen_status.update(f"[bold cyan]{msg}[/]")
+
+                generated = generate_agents_yaml(
+                    refined,
+                    project_dir=project_dir if has_project else None,
+                    qa_context=qa_context,
+                    deep_analysis=deep_analysis_text,
+                    on_status=_regen_status,
+                    model=selected_model,
+                )
             console.print("\n[bold]Regenerated agents.yaml:[/]\n")
             console.print(Syntax(generated, "yaml", theme="monokai", line_numbers=True))
             if not click.confirm("\n  Use this pipeline?", default=True):

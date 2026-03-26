@@ -119,24 +119,36 @@ class LLMGate(AbstractGate):
 
     def _parse_response(self, text: str) -> GateResult:
         """Parse the decision from the LLM response."""
+        # Try to extract JSON with balanced braces (supports nested objects)
         try:
-            json_match = re.search(r"\{[^}]+\}", text, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-                decision = data.get("decision", "").lower()
-                if decision in ("approved", "rejected"):
-                    return GateResult(
-                        decision=decision,
-                        reason=data.get("reason", ""),
-                    )
+            start = text.find("{")
+            if start != -1:
+                depth = 0
+                for i in range(start, len(text)):
+                    if text[i] == "{":
+                        depth += 1
+                    elif text[i] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            data = json.loads(text[start:i + 1])
+                            decision = data.get("decision", "").lower()
+                            if decision in ("approved", "rejected"):
+                                return GateResult(
+                                    decision=decision,
+                                    reason=data.get("reason", ""),
+                                )
+                            break
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        # Fallback: search for keywords in text
+        # Fallback: search for keywords with word boundaries,
+        # checking for negation to avoid "not approved" → "approved"
         lower = text.lower()
-        if "approved" in lower or "approve" in lower:
+        if re.search(r'\bnot\s+approve', lower):
+            return GateResult(decision="rejected", reason=text.strip())
+        if re.search(r'\bapproved?\b', lower):
             return GateResult(decision="approved", reason=text.strip())
-        if "rejected" in lower or "reject" in lower:
+        if re.search(r'\brejected?\b', lower):
             return GateResult(decision="rejected", reason=text.strip())
 
         return GateResult(decision="rejected", reason=f"Unable to determine: {text[:200]}")

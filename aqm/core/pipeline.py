@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -41,16 +42,19 @@ MAX_STAGES = 20  # Fallback; overridden by config.pipeline.max_stages
 # Thread-safe set of task IDs that have been requested to cancel.
 # Checked each iteration of the pipeline loop.
 _cancelled_tasks: set[str] = set()
+_cancel_lock = threading.Lock()
 
 
 def cancel_task(task_id: str) -> None:
     """Request cancellation of a running task."""
-    _cancelled_tasks.add(task_id)
+    with _cancel_lock:
+        _cancelled_tasks.add(task_id)
 
 
 def is_cancelled(task_id: str) -> bool:
     """Check if a task has been requested to cancel."""
-    return task_id in _cancelled_tasks
+    with _cancel_lock:
+        return task_id in _cancelled_tasks
 
 
 class Pipeline:
@@ -153,7 +157,10 @@ class Pipeline:
             )
             if eq_match:
                 key, value = eq_match.groups()
-                return value.lower() in agent_output.lower()
+                return bool(re.search(
+                    r'\b' + re.escape(value) + r'\b',
+                    agent_output, re.IGNORECASE,
+                ))
 
             in_match = re.match(
                 r"(\w+)\s+in\s+\[([^\]]+)\]", condition
@@ -161,11 +168,13 @@ class Pipeline:
             if in_match:
                 key, values_str = in_match.groups()
                 values = [
-                    v.strip().strip("\"'").lower()
+                    v.strip().strip("\"'")
                     for v in values_str.split(",")
                 ]
-                output_lower = agent_output.lower()
-                return any(v in output_lower for v in values)
+                return any(
+                    re.search(r'\b' + re.escape(v) + r'\b', agent_output, re.IGNORECASE)
+                    for v in values
+                )
         except Exception:
             logger.warning(f"Condition evaluation failed: {condition}")
 
@@ -285,14 +294,18 @@ class Pipeline:
 
         ctx_file = self._get_context_file(task)
 
-        # Track per-agent gate rejection counts to prevent infinite reject loops
+        # Track per-agent gate rejection counts to prevent infinite reject loops.
+        # Counts are reset when a different agent runs (so re-visiting an agent
+        # after other work starts a fresh rejection budget).
         reject_counts: dict[str, int] = {}
+        _prev_agent_id: str | None = None
 
         max_stages = self.config.pipeline.max_stages
         while task.next_stage_number <= max_stages:
             # Check for cancellation
             if is_cancelled(task.id):
-                _cancelled_tasks.discard(task.id)
+                with _cancel_lock:
+                    _cancelled_tasks.discard(task.id)
                 task.status = TaskStatus.cancelled
                 task.metadata["cancel_reason"] = "Cancelled by user"
                 self.queue.update(task)
@@ -305,6 +318,10 @@ class Pipeline:
                 )
 
             agent = self.agents[current_agent_id]
+            # Reset reject counter when agent changes (fresh budget on re-visit)
+            if current_agent_id != _prev_agent_id:
+                reject_counts.pop(current_agent_id, None)
+                _prev_agent_id = current_agent_id
             task.current_agent_id = current_agent_id
             task.status = TaskStatus.in_progress
             self.queue.update(task)
@@ -367,8 +384,8 @@ class Pipeline:
 
                 # Check if session was cancelled
                 if is_cancelled(task.id):
-                    from aqm.core.pipeline import _cancelled_tasks
-                    _cancelled_tasks.discard(task.id)
+                    with _cancel_lock:
+                        _cancelled_tasks.discard(task.id)
                     task.status = TaskStatus.cancelled
                     task.metadata["cancel_reason"] = "Cancelled during session"
                     self.queue.update(task)

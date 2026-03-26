@@ -310,7 +310,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         if context_path.exists():
             parent_context = context_path.read_text(encoding="utf-8")
 
-        agents = _get_agents(cli_params=req.params)
+        agents = _get_agents(cli_params=req.params, pipeline=req.pipeline)
         if not agents:
             raise HTTPException(500, "No agents defined")
 
@@ -338,7 +338,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
 
         thread = threading.Thread(
             target=_run_pipeline_bg,
-            args=(task, start_agent, followup_input, req.params),
+            args=(task, start_agent, followup_input, req.params, req.pipeline),
             daemon=True,
         )
         thread.start()

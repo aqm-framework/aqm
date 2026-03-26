@@ -153,10 +153,12 @@ class CodexCLIRuntime(AbstractRuntime):
                         on_output(line.rstrip("\n"))
                     except Exception:
                         pass
-                proc.wait(timeout=self._timeout)
             except subprocess.TimeoutExpired:
-                proc.kill()
                 raise RuntimeError(f"Codex CLI timed out (agent={agent.id})")
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
         else:
             # Multiplex stdout + stderr for tool events
             import selectors
@@ -222,18 +224,22 @@ class CodexCLIRuntime(AbstractRuntime):
                                     except Exception:
                                         pass
 
-                sel.close()
-                proc.wait(timeout=self._timeout)
             except subprocess.TimeoutExpired:
-                sel.close()
-                proc.kill()
                 raise RuntimeError(f"Codex CLI timed out (agent={agent.id})")
+            finally:
+                sel.close()
+                if proc.poll() is None:
+                    proc.kill()
+                proc.wait()
 
         if proc.returncode != 0:
-            error_msg = (
-                proc.stderr.read().strip() if proc.stderr  # type: ignore[union-attr]
-                else f"Exit code: {proc.returncode}"
-            )
+            try:
+                error_msg = (
+                    proc.stderr.read().strip() if proc.stderr  # type: ignore[union-attr]
+                    else f"Exit code: {proc.returncode}"
+                )
+            except (ValueError, OSError):
+                error_msg = f"Exit code: {proc.returncode}"
             logger.error(
                 "[CodexCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
             )
