@@ -15,7 +15,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition, MCPServerConfig
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback, ToolCallback
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
         task: Task,
         on_output: OutputCallback = None,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         # --- Pre-flight check ---------------------------------------------------
         _check_claude_cli_available()
@@ -193,7 +194,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         try:
             if on_output:
-                output = self._run_streaming(cmd, agent, on_output, on_thinking)
+                output = self._run_streaming(cmd, agent, on_output, on_thinking, on_tool)
             else:
                 result = subprocess.run(
                     cmd,
@@ -238,6 +239,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
         agent: AgentDefinition,
         on_output: OutputCallback,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         """Run with true token-level streaming via ``--include-partial-messages``.
 
@@ -252,7 +254,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
             "--output-format", "stream-json",
             "--include-partial-messages",
         ])
-        return self._run_stream_json(stream_cmd, agent, on_output, on_thinking)
+        return self._run_stream_json(stream_cmd, agent, on_output, on_thinking, on_tool)
 
     def _run_stream_json(
         self,
@@ -260,6 +262,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
         agent: AgentDefinition,
         on_output: OutputCallback,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         """Run with ``--output-format stream-json`` for real-time streaming.
 
@@ -328,7 +331,19 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     got_stream_events = True
                     inner = event.get("event", {})
                     inner_type = inner.get("type", "")
-                    if inner_type == "content_block_delta":
+
+                    if inner_type == "content_block_start":
+                        cb = inner.get("content_block", {})
+                        if cb.get("type") == "tool_use" and on_tool:
+                            try:
+                                on_tool("tool_start", {
+                                    "tool_use_id": cb.get("id", ""),
+                                    "tool": cb.get("name", ""),
+                                })
+                            except Exception:
+                                pass
+
+                    elif inner_type == "content_block_delta":
                         delta = inner.get("delta", {})
                         delta_type = delta.get("type", "")
                         if delta_type == "thinking_delta":
@@ -366,6 +381,13 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                             '[ClaudeCodeRuntime] Too many callback errors (agent=%s), suppressing',
                                             agent.id,
                                         )
+                        elif delta_type == "input_json_delta" and on_tool:
+                            partial = delta.get("partial_json", "")
+                            if partial:
+                                try:
+                                    on_tool("tool_input", {"partial_json": partial})
+                                except Exception:
+                                    pass
 
                 # Full message fallback — only used when NO stream_events
                 # were received (i.e. --include-partial-messages not active)
@@ -390,6 +412,15 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                             '[ClaudeCodeRuntime] Too many callback errors (agent=%s), suppressing',
                                             agent.id,
                                         )
+                        elif btype == "tool_use" and on_tool:
+                            try:
+                                on_tool("tool_start", {
+                                    "tool_use_id": block.get("id", ""),
+                                    "tool": block.get("name", ""),
+                                    "input": block.get("input", {}),
+                                })
+                            except Exception:
+                                pass
                         elif btype == "text":
                             text = block.get("text", "")
                             if text:
@@ -408,6 +439,15 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                             '[ClaudeCodeRuntime] Too many callback errors (agent=%s), suppressing',
                                             agent.id,
                                         )
+
+                elif etype == "tool_result" and on_tool:
+                    try:
+                        on_tool("tool_result", {
+                            "tool_use_id": event.get("tool_use_id", ""),
+                            "content": event.get("content", ""),
+                        })
+                    except Exception:
+                        pass
 
                 elif etype == "result":
                     result_text = event.get("result", "")

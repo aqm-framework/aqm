@@ -594,3 +594,64 @@ class TestCallbackErrorLogging:
 
         assert "callback error" in caplog.text.lower()
         assert "SSE connection lost" in caplog.text
+
+
+# ── P10: Tool streaming ─────────────────────────────────────────────
+
+
+class TestToolStreaming:
+    """Test that tool use events are parsed and forwarded."""
+
+    def test_claude_tool_start_from_content_block_start(self):
+        import io, json
+        from unittest.mock import patch, MagicMock
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(id="test", runtime="claude")
+        tool_events = []
+
+        events = [
+            json.dumps({"type": "stream_event", "event": {
+                "type": "content_block_start",
+                "content_block": {"type": "tool_use", "id": "tu_123", "name": "Read"}
+            }}),
+            json.dumps({"type": "stream_event", "event": {
+                "type": "content_block_delta",
+                "delta": {"type": "text_delta", "text": "done"}
+            }}),
+            json.dumps({"type": "result", "result": "done"}),
+        ]
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+        call_idx = [0]
+        def mock_readline():
+            if call_idx[0] < len(events):
+                line = events[call_idx[0]] + "\n"
+                call_idx[0] += 1
+                return line
+            return ""
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = None
+        mock_sel = MagicMock()
+        mock_sel.select = lambda timeout=None: [(None, None)]
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch("selectors.DefaultSelector", return_value=mock_sel):
+                rt._run_stream_json(
+                    ["claude", "--print"], agent,
+                    on_output=lambda x: None,
+                    on_tool=lambda et, d: tool_events.append((et, d)),
+                )
+
+        assert len(tool_events) >= 1
+        assert tool_events[0][0] == "tool_start"
+        assert tool_events[0][1]["tool"] == "Read"
+
+    def test_tool_callback_type_exported(self):
+        from aqm.runtime.base import ToolCallback
+        assert ToolCallback is not None

@@ -704,11 +704,30 @@ def run(input_text: str, agent: str | None, params: tuple[str, ...], priority: s
         if line.strip():
             console.print(f"    [dim]{line}[/]")
 
+    def _on_tool(event_type: str, data: dict) -> None:
+        tool_name = data.get("tool", "")
+        if event_type == "tool_start":
+            tool_input = data.get("input", {})
+            # Show file path for Read/Edit/Write, command for Bash
+            detail = ""
+            if isinstance(tool_input, dict):
+                detail = tool_input.get("file_path", tool_input.get("command", tool_input.get("pattern", "")))
+            if isinstance(detail, str) and len(detail) > 80:
+                detail = detail[:77] + "..."
+            console.print(f"    [cyan]▶ {tool_name}[/] {detail}")
+        elif event_type == "tool_result":
+            content = str(data.get("content", ""))
+            preview = content[:100].replace("\n", " ")
+            if len(content) > 100:
+                preview += "..."
+            console.print(f"    [green]◀ {tool_name}[/] [dim]{preview}[/]")
+
     result = pipeline.run_task(
         task,
         start_agent,
         on_stage_complete=_on_stage,
         on_output=_on_output,
+        on_tool=_on_tool,
     )
 
     console.print()

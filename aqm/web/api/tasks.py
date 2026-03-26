@@ -132,6 +132,9 @@ def create_tasks_router(project_root: Path) -> APIRouter:
             def on_thinking(line):
                 broadcast_event(task.id, "stage_thinking", {"text": line})
 
+            def on_tool(event_type, data):
+                broadcast_event(task.id, f"tool_{event_type}", data)
+
             def on_human_input_request(t, agent_id, questions):
                 broadcast_event(t.id, "human_input_request", {
                     "agent_id": agent_id,
@@ -146,6 +149,7 @@ def create_tasks_router(project_root: Path) -> APIRouter:
                 on_output=on_output,
                 on_thinking=on_thinking,
                 on_human_input_request=on_human_input_request,
+                on_tool=on_tool,
             )
 
             if result.status == TaskStatus.awaiting_human_input:
@@ -616,12 +620,16 @@ def _resume_pipeline_bg(project_root: Path, task_id: str, decision: str, reason:
         def on_thinking(line):
             broadcast_event(task_id, "stage_thinking", {"text": line})
 
+        def on_tool(event_type, data):
+            broadcast_event(task_id, f"tool_{event_type}", data)
+
         result = pipeline.resume_task(
             task_id, decision, reason,
             on_stage_complete=on_stage_complete,
             on_stage_start=on_stage_start,
             on_output=on_output,
             on_thinking=on_thinking,
+            on_tool=on_tool,
         )
 
         if result.status == TaskStatus.awaiting_gate:
@@ -678,6 +686,9 @@ def _resume_human_input_bg(project_root: Path, task_id: str, response: str):
         def on_thinking(line):
             broadcast_event(task_id, "stage_thinking", {"text": line})
 
+        def on_tool(event_type, data):
+            broadcast_event(task_id, f"tool_{event_type}", data)
+
         def on_human_input_request(t, agent_id, questions):
             broadcast_event(t.id, "human_input_request", {
                 "agent_id": agent_id,
@@ -691,6 +702,7 @@ def _resume_human_input_bg(project_root: Path, task_id: str, response: str):
             on_output=on_output,
             on_thinking=on_thinking,
             on_human_input_request=on_human_input_request,
+            on_tool=on_tool,
         )
 
         if result.status == TaskStatus.awaiting_human_input:
