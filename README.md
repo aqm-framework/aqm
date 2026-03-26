@@ -54,6 +54,7 @@ pip install aqm && aqm init && aqm run "Add JWT authentication"
 | No forced quality checks | Agent says "looks good" to itself | **Quality gates** auto-reject and retry |
 | Context window explodes at scale | Everything in one conversation | **5 context strategies** — 55-85% token savings |
 | Can't standardize team processes | Every run is ad-hoc | **YAML pipelines** — version-controlled, shareable |
+| Complex tasks lose track of progress | No built-in task tracking | **Chunk decomposition** — agents break work into trackable units |
 | Expensive API costs | Per-token API billing adds up | **CLI-based** — uses your existing CLI subscriptions, no extra API fees |
 | Setup overhead | API keys, SDKs, env configs | **Zero config** — uses CLI tools you already have |
 
