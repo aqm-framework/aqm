@@ -21,7 +21,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback, ToolCallback
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class GeminiCLIRuntime(AbstractRuntime):
         task: Task,
         on_output: OutputCallback = None,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         _check_gemini_cli_available()
 
@@ -116,7 +117,7 @@ class GeminiCLIRuntime(AbstractRuntime):
 
         try:
             if on_output:
-                return self._run_streaming(cmd, env, agent, on_output)
+                return self._run_streaming(cmd, env, agent, on_output, on_tool)
 
             result = subprocess.run(
                 cmd,
@@ -157,23 +158,84 @@ class GeminiCLIRuntime(AbstractRuntime):
         env: dict[str, str],
         agent: AgentDefinition,
         on_output: OutputCallback,
+        on_tool: ToolCallback = None,
     ) -> str:
-        """Run with line-by-line streaming via Popen."""
+        """Run with line-by-line streaming via Popen.
+
+        Gemini CLI with ``-o stream-json`` outputs JSON events including
+        tool use (functionCall/functionResponse).  Falls back to plain
+        text streaming when JSON parsing fails.
+        """
+        import json
+
+        # Use stream-json for structured output when tool callback present
+        stream_cmd = list(cmd)
+        if on_tool:
+            stream_cmd.extend(["-o", "stream-json"])
+
         proc = subprocess.Popen(
-            cmd,
+            stream_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             env=env,
         )
 
-        lines: list[str] = []
+        output_parts: list[str] = []
         try:
             while True:
                 line = proc.stdout.readline()  # type: ignore[union-attr]
                 if not line:
                     break
-                lines.append(line)
+
+                stripped = line.strip()
+                if not stripped:
+                    continue
+
+                # Try to parse as JSON for structured events
+                if on_tool:
+                    try:
+                        event = json.loads(stripped)
+                        etype = event.get("type", "")
+
+                        # Gemini stream-json: functionCall events
+                        if etype == "functionCall" or "functionCall" in event:
+                            fc = event.get("functionCall", event)
+                            try:
+                                on_tool("tool_start", {
+                                    "tool": fc.get("name", ""),
+                                    "input": fc.get("args", {}),
+                                })
+                            except Exception:
+                                pass
+                            continue
+
+                        # Gemini stream-json: functionResponse events
+                        if etype == "functionResponse" or "functionResponse" in event:
+                            fr = event.get("functionResponse", event)
+                            try:
+                                on_tool("tool_result", {
+                                    "tool": fr.get("name", ""),
+                                    "content": fr.get("response", ""),
+                                })
+                            except Exception:
+                                pass
+                            continue
+
+                        # Text content
+                        text = event.get("text", "")
+                        if text:
+                            output_parts.append(text)
+                            try:
+                                on_output(text)
+                            except Exception:
+                                pass
+                            continue
+                    except json.JSONDecodeError:
+                        pass  # Fall through to plain text handling
+
+                # Plain text line
+                output_parts.append(line)
                 try:
                     on_output(line.rstrip("\n"))
                 except Exception:
@@ -198,7 +260,7 @@ class GeminiCLIRuntime(AbstractRuntime):
                 f"Gemini CLI execution failed (agent={agent.id}): {error_msg}"
             )
 
-        output = "".join(lines).strip()
+        output = "".join(output_parts).strip()
         logger.info(
             "[GeminiCLIRuntime] Agent '%s' completed (%d chars)",
             agent.id,

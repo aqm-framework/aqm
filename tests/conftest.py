@@ -24,7 +24,7 @@ class MockRuntime(AbstractRuntime):
     def name(self) -> str:
         return "mock"
 
-    def run(self, prompt: str, agent: AgentDefinition, task: Task) -> str:
+    def run(self, prompt: str, agent: AgentDefinition, task: Task, on_output=None, on_thinking=None, on_tool=None) -> str:
         return self._response
 
 

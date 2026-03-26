@@ -262,6 +262,7 @@ class Pipeline:
         on_output=None,
         on_thinking=None,
         on_human_input_request=None,
+        on_tool=None,
     ) -> Task:
         """Run a task through the pipeline.
 
@@ -274,6 +275,7 @@ class Pipeline:
             on_output: Output line callback (line_text) for streaming
             on_thinking: Thinking line callback (line_text) for streaming thinking
             on_human_input_request: Callback (task, agent_id, questions) when human input needed
+            on_tool: Tool use event callback (event_type, data_dict) for streaming tool use
 
         Returns:
             The Task in completed (or gate-awaiting) state
@@ -320,6 +322,7 @@ class Pipeline:
                         on_turn_complete=on_stage_complete,
                         on_output=on_output,
                         on_thinking=on_thinking,
+                        on_tool=on_tool,
                     )
                     # Record the session as a single stage
                     stage = StageRecord(
@@ -396,6 +399,7 @@ class Pipeline:
                             on_stage_start=on_stage_start,
                             on_output=on_output,
                             on_thinking=on_thinking,
+                            on_tool=on_tool,
                         )
 
                 next_agent_id, next_payload = handoff_targets[0]
@@ -471,7 +475,7 @@ class Pipeline:
 
             try:
                 runtime = self._get_runtime(agent)
-                output = runtime.run(prompt, agent, task, on_output=on_output, on_thinking=on_thinking)
+                output = runtime.run(prompt, agent, task, on_output=on_output, on_thinking=on_thinking, on_tool=on_tool)
                 stage.output_text = output
                 stage.finished_at = datetime.now(timezone.utc)
             except Exception as e:
@@ -626,6 +630,7 @@ class Pipeline:
                         on_stage_start=on_stage_start,
                         on_output=on_output,
                         on_thinking=on_thinking,
+                        on_tool=on_tool,
                     )
 
             next_agent_id, next_payload = handoff_targets[0]
@@ -663,6 +668,7 @@ class Pipeline:
         on_output=None,
         on_thinking=None,
         on_human_input_request=None,
+        on_tool=None,
     ) -> Task:
         """Resume the pipeline after a human input response.
 
@@ -716,6 +722,7 @@ class Pipeline:
                 on_output=on_output,
                 on_thinking=on_thinking,
                 on_human_input_request=on_human_input_request,
+                on_tool=on_tool,
             )
         else:
             # on_demand: re-run the agent with human response appended
@@ -753,6 +760,7 @@ class Pipeline:
                         on_output=on_output,
                         on_thinking=on_thinking,
                         on_human_input_request=on_human_input_request,
+                        on_tool=on_tool,
                     )
 
             # No handoffs — re-run same agent
@@ -764,6 +772,7 @@ class Pipeline:
                 on_output=on_output,
                 on_thinking=on_thinking,
                 on_human_input_request=on_human_input_request,
+                on_tool=on_tool,
             )
 
     def resume_task(
@@ -775,6 +784,7 @@ class Pipeline:
         on_stage_start=None,
         on_output=None,
         on_thinking=None,
+        on_tool=None,
     ) -> Task:
         """Resume the pipeline after a human gate.
 
@@ -835,6 +845,7 @@ class Pipeline:
             on_stage_start=on_stage_start,
             on_output=on_output,
             on_thinking=on_thinking,
+            on_tool=on_tool,
         )
 
     # ------------------------------------------------------------------
@@ -851,6 +862,7 @@ class Pipeline:
         on_turn_complete=None,
         on_output=None,
         on_thinking=None,
+        on_tool=None,
     ) -> str:
         """Run a conversational session among participant agents.
 
@@ -1045,6 +1057,7 @@ class Pipeline:
                     final_output = runtime.run(
                         summary_prompt, summary_agent, task,
                         on_output=on_output, on_thinking=on_thinking,
+                        on_tool=on_tool,
                     )
 
                 agreed_by = [k for k, v in agreements.items() if v]

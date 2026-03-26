@@ -13,7 +13,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition, MCPServerConfig
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback, ToolCallback
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +139,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
         task: Task,
         on_output: OutputCallback = None,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         # --- Pre-flight check ---------------------------------------------------
         _check_claude_cli_available()
@@ -179,7 +180,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         try:
             if on_output:
-                output = self._run_streaming(cmd, agent, on_output, on_thinking)
+                output = self._run_streaming(cmd, agent, on_output, on_thinking, on_tool)
             else:
                 result = subprocess.run(
                     cmd,
@@ -224,12 +225,14 @@ class ClaudeCodeRuntime(AbstractRuntime):
         agent: AgentDefinition,
         on_output: OutputCallback,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         """Run with true token-level streaming via ``--include-partial-messages``.
 
         Always uses ``--output-format stream-json --include-partial-messages``
         for real-time token streaming.  Thinking blocks are forwarded to
-        *on_thinking* when provided.
+        *on_thinking* when provided.  Tool use events are forwarded to
+        *on_tool* when provided.
         """
         stream_cmd = list(cmd)
         if "--verbose" not in stream_cmd:
@@ -238,7 +241,7 @@ class ClaudeCodeRuntime(AbstractRuntime):
             "--output-format", "stream-json",
             "--include-partial-messages",
         ])
-        return self._run_stream_json(stream_cmd, agent, on_output, on_thinking)
+        return self._run_stream_json(stream_cmd, agent, on_output, on_thinking, on_tool)
 
     def _run_stream_json(
         self,
@@ -246,14 +249,16 @@ class ClaudeCodeRuntime(AbstractRuntime):
         agent: AgentDefinition,
         on_output: OutputCallback,
         on_thinking: ThinkingCallback = None,
+        on_tool: ToolCallback = None,
     ) -> str:
         """Run with ``--output-format stream-json`` for real-time streaming.
 
-        Handles two event formats:
+        Handles multiple event formats:
         - **stream_event** (with ``--include-partial-messages``):
           Token-level deltas via ``content_block_delta``.
         - **assistant** (without partial messages):
-          Full message with complete content blocks.
+          Full message with complete content blocks (text + tool_use).
+        - **tool_use** / **tool_result**: Tool invocation events.
         """
         proc = subprocess.Popen(
             cmd,
@@ -290,7 +295,20 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     got_stream_events = True
                     inner = event.get("event", {})
                     inner_type = inner.get("type", "")
-                    if inner_type == "content_block_delta":
+
+                    if inner_type == "content_block_start":
+                        # Tool use start: content_block with type=tool_use
+                        cb = inner.get("content_block", {})
+                        if cb.get("type") == "tool_use" and on_tool:
+                            try:
+                                on_tool("tool_start", {
+                                    "tool_use_id": cb.get("id", ""),
+                                    "tool": cb.get("name", ""),
+                                })
+                            except Exception:
+                                pass
+
+                    elif inner_type == "content_block_delta":
                         delta = inner.get("delta", {})
                         delta_type = delta.get("type", "")
                         if delta_type == "thinking_delta":
@@ -306,6 +324,16 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                 output_parts.append(text)
                                 try:
                                     on_output(text)
+                                except Exception:
+                                    pass
+                        elif delta_type == "input_json_delta" and on_tool:
+                            # Streaming tool input JSON
+                            partial = delta.get("partial_json", "")
+                            if partial:
+                                try:
+                                    on_tool("tool_input", {
+                                        "partial_json": partial,
+                                    })
                                 except Exception:
                                     pass
 
@@ -330,6 +358,25 @@ class ClaudeCodeRuntime(AbstractRuntime):
                                     on_output(text)
                                 except Exception:
                                     pass
+                        elif btype == "tool_use" and on_tool:
+                            try:
+                                on_tool("tool_start", {
+                                    "tool_use_id": block.get("id", ""),
+                                    "tool": block.get("name", ""),
+                                    "input": block.get("input", {}),
+                                })
+                            except Exception:
+                                pass
+
+                # Tool result events from Claude Code
+                elif etype == "tool_result" and on_tool:
+                    try:
+                        on_tool("tool_result", {
+                            "tool_use_id": event.get("tool_use_id", ""),
+                            "content": event.get("content", ""),
+                        })
+                    except Exception:
+                        pass
 
                 elif etype == "result":
                     result_text = event.get("result", "")

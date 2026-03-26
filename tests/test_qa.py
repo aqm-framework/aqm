@@ -379,3 +379,145 @@ class TestContextFileEdgeCases:
         content = cf.read_agent_context("dev")
         # agent context stores only output now
         assert "日本語の出力" in content
+
+
+# ── P6: Tool streaming ──────────────────────────────────────────────
+
+
+class TestToolStreaming:
+    """Test that tool use events are parsed and forwarded."""
+
+    def test_claude_tool_start_from_content_block_start(self):
+        """Claude stream-json content_block_start with tool_use should fire on_tool."""
+        import io
+        import json
+        from unittest.mock import patch, MagicMock
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(id="test", runtime="claude")
+
+        tool_events = []
+
+        def on_tool(event_type, data):
+            tool_events.append((event_type, data))
+
+        # Mock Popen with stream-json events
+        events = [
+            json.dumps({
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start",
+                    "content_block": {
+                        "type": "tool_use",
+                        "id": "tu_123",
+                        "name": "Read",
+                    }
+                }
+            }),
+            json.dumps({
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta",
+                    "delta": {
+                        "type": "text_delta",
+                        "text": "done",
+                    }
+                }
+            }),
+            json.dumps({"type": "result", "result": "done"}),
+        ]
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+
+        call_idx = [0]
+        def mock_readline():
+            if call_idx[0] < len(events):
+                line = events[call_idx[0]] + "\n"
+                call_idx[0] += 1
+                return line
+            return ""
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.wait.return_value = None
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            rt._run_stream_json(
+                ["claude", "--print"],
+                agent,
+                on_output=lambda x: None,
+                on_tool=on_tool,
+            )
+
+        assert len(tool_events) >= 1
+        assert tool_events[0][0] == "tool_start"
+        assert tool_events[0][1]["tool"] == "Read"
+        assert tool_events[0][1]["tool_use_id"] == "tu_123"
+
+    def test_claude_assistant_tool_use_block(self):
+        """Claude assistant message with tool_use content block fires on_tool."""
+        import io
+        import json
+        from unittest.mock import patch, MagicMock
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(id="test", runtime="claude")
+
+        tool_events = []
+
+        events = [
+            json.dumps({
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Let me read the file."},
+                        {
+                            "type": "tool_use",
+                            "id": "tu_456",
+                            "name": "Edit",
+                            "input": {"file_path": "/tmp/test.py"},
+                        }
+                    ]
+                }
+            }),
+            json.dumps({"type": "result", "result": "done"}),
+        ]
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+
+        call_idx = [0]
+        def mock_readline():
+            if call_idx[0] < len(events):
+                line = events[call_idx[0]] + "\n"
+                call_idx[0] += 1
+                return line
+            return ""
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.wait.return_value = None
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            rt._run_stream_json(
+                ["claude", "--print"],
+                agent,
+                on_output=lambda x: None,
+                on_tool=lambda et, d: tool_events.append((et, d)),
+            )
+
+        # Should have tool_start for Edit
+        tool_starts = [e for e in tool_events if e[0] == "tool_start"]
+        assert len(tool_starts) == 1
+        assert tool_starts[0][1]["tool"] == "Edit"
+        assert tool_starts[0][1]["input"]["file_path"] == "/tmp/test.py"
+
+    def test_tool_callback_type_exported(self):
+        """ToolCallback type should be importable from base module."""
+        from aqm.runtime.base import ToolCallback
+        assert ToolCallback is not None
