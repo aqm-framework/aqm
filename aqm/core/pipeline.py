@@ -283,6 +283,9 @@ class Pipeline:
 
         ctx_file = self._get_context_file(task)
 
+        # Track per-agent gate rejection counts to prevent infinite reject loops
+        reject_counts: dict[str, int] = {}
+
         max_stages = self.config.pipeline.max_stages
         while task.next_stage_number <= max_stages:
             # Check for cancellation
@@ -563,6 +566,26 @@ class Pipeline:
 
                 stage.gate_result = gate_result.decision  # type: ignore
                 stage.reject_reason = gate_result.reason
+
+                # Track reject counts per agent to prevent infinite loops
+                if gate_result.decision == "rejected":
+                    reject_counts[agent.id] = reject_counts.get(agent.id, 0) + 1
+                    max_retries = agent.gate.max_retries if agent.gate else 3
+                    if reject_counts[agent.id] > max_retries:
+                        stage.output_text = output
+                        stage.finished_at = datetime.now(timezone.utc)
+                        task.add_stage(stage)
+                        task.status = TaskStatus.failed
+                        task.metadata["error"] = (
+                            f"Agent '{agent.id}' exceeded max gate retries "
+                            f"({max_retries}). Gate kept rejecting output."
+                        )
+                        self.queue.update(task)
+                        logger.error(
+                            f"[Pipeline] {task.id} agent '{agent.id}' exceeded "
+                            f"max gate retries ({max_retries})"
+                        )
+                        return task
 
             # Record stage
             task.add_stage(stage)
