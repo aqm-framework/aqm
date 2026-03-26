@@ -22,7 +22,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback, ToolCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, RuntimeExecutionError, ThinkingCallback, ToolCallback
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +105,9 @@ class CodexCLIRuntime(AbstractRuntime):
             logger.error(
                 "[CodexCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
             )
-            raise RuntimeError(
-                f"Codex CLI execution failed (agent={agent.id}): {error_msg}"
+            raise RuntimeExecutionError(
+                f"Codex CLI execution failed (agent={agent.id}): {error_msg}",
+                partial_output=result.stdout.strip(),
             )
 
         output = result.stdout.strip()
@@ -154,7 +155,10 @@ class CodexCLIRuntime(AbstractRuntime):
                     except Exception:
                         pass
             except subprocess.TimeoutExpired:
-                raise RuntimeError(f"Codex CLI timed out (agent={agent.id})")
+                raise RuntimeExecutionError(
+                    f"Codex CLI timed out (agent={agent.id})",
+                    partial_output="".join(output_parts).strip(),
+                )
             finally:
                 if proc.poll() is None:
                     proc.kill()
@@ -225,7 +229,10 @@ class CodexCLIRuntime(AbstractRuntime):
                                         pass
 
             except subprocess.TimeoutExpired:
-                raise RuntimeError(f"Codex CLI timed out (agent={agent.id})")
+                raise RuntimeExecutionError(
+                    f"Codex CLI timed out (agent={agent.id})",
+                    partial_output="".join(output_parts).strip(),
+                )
             finally:
                 sel.close()
                 if proc.poll() is None:
@@ -243,8 +250,9 @@ class CodexCLIRuntime(AbstractRuntime):
             logger.error(
                 "[CodexCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
             )
-            raise RuntimeError(
-                f"Codex CLI execution failed (agent={agent.id}): {error_msg}"
+            raise RuntimeExecutionError(
+                f"Codex CLI execution failed (agent={agent.id}): {error_msg}",
+                partial_output="".join(output_parts).strip(),
             )
 
         output = "".join(output_parts).strip()

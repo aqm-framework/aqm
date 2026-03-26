@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -322,3 +323,54 @@ class ContextFile:
         path = self.agent_context_path(agent_id)
         with open(path, "a", encoding="utf-8") as f:
             f.write(section)
+
+    # ── Snapshot / Restore (checkpoint recovery) ───────────────────
+
+    def snapshot_before_stage(self, stage_number: int) -> Path:
+        """Snapshot all .md files into ``snapshots/stage_{N}/`` before stage *N* runs.
+
+        Returns the snapshot directory path.
+        """
+        snap_dir = self.task_dir / "snapshots" / f"stage_{stage_number}"
+        snap_dir.mkdir(parents=True, exist_ok=True)
+        for md_file in self.task_dir.glob("*.md"):
+            shutil.copy2(md_file, snap_dir / md_file.name)
+        return snap_dir
+
+    def restore_snapshot(self, stage_number: int) -> bool:
+        """Restore context files from the snapshot taken before stage *N*.
+
+        Removes current ``.md`` files first so that files created by later
+        stages (e.g. ``agent_qa.md``) do not leak into the restored state.
+        Returns ``True`` if the snapshot existed and was restored.
+        """
+        snap_dir = self.task_dir / "snapshots" / f"stage_{stage_number}"
+        if not snap_dir.exists():
+            return False
+        # Remove current .md files for a clean slate
+        for md_file in self.task_dir.glob("*.md"):
+            md_file.unlink()
+        # Copy snapshot files back
+        for snap_file in snap_dir.glob("*.md"):
+            shutil.copy2(snap_file, self.task_dir / snap_file.name)
+        return True
+
+    def cleanup_snapshots(self) -> None:
+        """Delete the ``snapshots/`` directory (called after successful completion)."""
+        snap_root = self.task_dir / "snapshots"
+        if snap_root.exists():
+            shutil.rmtree(snap_root)
+
+    def list_snapshots(self) -> list[int]:
+        """Return sorted list of stage numbers that have snapshots available."""
+        snap_root = self.task_dir / "snapshots"
+        if not snap_root.exists():
+            return []
+        stages: list[int] = []
+        for d in snap_root.iterdir():
+            if d.is_dir() and d.name.startswith("stage_"):
+                try:
+                    stages.append(int(d.name.split("_", 1)[1]))
+                except ValueError:
+                    pass
+        return sorted(stages)
