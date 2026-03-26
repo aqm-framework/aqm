@@ -563,13 +563,6 @@ def load_agents(
     return agents
 
 
-def get_first_agent_id(path: Path, cli_params: dict[str, str] | None = None) -> str:
-    """Return the first agent ID from agents.yaml (after full resolution)."""
-    agents = load_agents(path, cli_params=cli_params)
-    if not agents:
-        raise ValueError("No agents are defined in agents.yaml.")
-    return next(iter(agents))
-
 
 def get_entry_point(path: Path) -> str:
     """Read the ``entry_point`` setting from agents.yaml.

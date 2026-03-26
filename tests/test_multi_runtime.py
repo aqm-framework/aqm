@@ -424,7 +424,7 @@ class TestPipelineRuntimeResolution:
 
     def test_claude_always_uses_claude_code(self, tmp_project):
         """Claude runtime always uses ClaudeCodeRuntime."""
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         agents = {
             "plain": AgentDefinition(
@@ -495,7 +495,7 @@ class TestPipelineRuntimeResolution:
 
     def test_claude_runtime_cached_single_instance(self, tmp_project):
         """All claude agents share the same ClaudeCodeRuntime instance."""
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         agents = {
             "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }}"),

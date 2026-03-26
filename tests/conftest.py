@@ -9,23 +9,7 @@ import yaml
 
 from aqm.core.agent import AgentDefinition, load_agents
 from aqm.core.project import init_project
-from aqm.core.task import Task
 from aqm.queue.file import FileQueue
-from aqm.runtime.base import AbstractRuntime
-
-
-class MockRuntime(AbstractRuntime):
-    """Mock runtime for testing. Returns a fixed response."""
-
-    def __init__(self, response: str = "mock output") -> None:
-        self._response = response
-
-    @property
-    def name(self) -> str:
-        return "mock"
-
-    def run(self, prompt: str, agent: AgentDefinition, task: Task, on_output=None, on_thinking=None, on_tool=None) -> str:
-        return self._response
 
 
 @pytest.fixture
@@ -96,8 +80,3 @@ def sample_agents(sample_agents_yaml: Path) -> dict[str, AgentDefinition]:
 def file_queue(tmp_project: Path) -> FileQueue:
     queue_dir = tmp_project / ".aqm" / "file-queue"
     return FileQueue(queue_dir)
-
-
-@pytest.fixture
-def mock_runtime() -> MockRuntime:
-    return MockRuntime()

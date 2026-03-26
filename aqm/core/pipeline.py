@@ -29,7 +29,7 @@ from aqm.core.project import get_tasks_dir
 from aqm.core.task import StageRecord, Task, TaskStatus
 from aqm.queue.base import AbstractQueue
 from aqm.runtime.base import AbstractRuntime
-from aqm.runtime.claude_code import ClaudeCodeRuntime
+from aqm.runtime.claude import ClaudeCodeRuntime
 from aqm.runtime.gemini import GeminiCLIRuntime
 from aqm.runtime.codex import CodexCLIRuntime
 
