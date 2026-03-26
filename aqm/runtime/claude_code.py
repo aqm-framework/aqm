@@ -6,9 +6,11 @@ import atexit
 import json
 import logging
 import os
+import selectors
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from aqm.core.agent import AgentDefinition, MCPServerConfig
@@ -277,8 +279,25 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         output_parts: list[str] = []
         got_stream_events = False  # Track if we received deltas
+        # Use selectors for non-blocking reads with heartbeat support.
+        # This prevents the CLI from appearing hung during long operations.
+        HEARTBEAT_INTERVAL = 30  # seconds
+        sel = selectors.DefaultSelector()
+        sel.register(proc.stdout, selectors.EVENT_READ)
         try:
             while True:
+                events = sel.select(timeout=HEARTBEAT_INTERVAL)
+                if not events:
+                    # No output for HEARTBEAT_INTERVAL — send keepalive
+                    if on_output:
+                        try:
+                            on_output("")
+                        except Exception:
+                            pass
+                    # Check if process has exited
+                    if proc.poll() is not None:
+                        break
+                    continue
                 line = proc.stdout.readline()
                 if not line:
                     break
@@ -348,8 +367,10 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     if result_text and not output_parts:
                         output_parts.append(result_text)
 
+            sel.close()
             proc.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
+            sel.close()
             proc.kill()
             raise RuntimeError(
                 f"Claude Code timed out (agent={agent.id})"
