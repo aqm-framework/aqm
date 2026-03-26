@@ -62,6 +62,10 @@ class HumanInputResponse(BaseModel):
     response: str
 
 
+class RestartRequest(BaseModel):
+    from_stage: Optional[int] = None
+
+
 class PriorityRequest(BaseModel):
     priority: str  # critical, high, normal, low
 
@@ -493,6 +497,40 @@ def create_tasks_router(project_root: Path) -> APIRouter:
         finally:
             queue.close()
 
+    # ── Restart ────────────────────────────────────────────────────────
+
+    @router.post("/api/tasks/{task_id}/restart")
+    async def api_restart_task(task_id: str, req: RestartRequest = None):
+        queue = _get_queue()
+        try:
+            task = queue.get(task_id)
+            if not task:
+                raise HTTPException(404, "Task not found")
+            restartable = {"failed", "completed", "stalled", "cancelled"}
+            if task.status.value not in restartable:
+                raise HTTPException(
+                    400,
+                    f"Task cannot be restarted (status: {task.status.value}). "
+                    f"Cancel it first if it is still running.",
+                )
+        finally:
+            queue.close()
+
+        from_stage = req.from_stage if req else None
+        thread = threading.Thread(
+            target=_restart_task_bg,
+            args=(project_root, task_id, from_stage),
+            daemon=True,
+        )
+        thread.start()
+
+        return {
+            "id": task_id,
+            "status": "restarting",
+            "from_stage": from_stage,
+            "message": "Task restarting",
+        }
+
     # ── Chunks ─────────────────────────────────────────────────────────
 
     class AddChunkRequest(BaseModel):
@@ -726,4 +764,71 @@ def _resume_human_input_bg(project_root: Path, task_id: str, response: str):
         queue.close()
     except Exception as e:
         logger.error("Human input resume failed: %s", e)
+        broadcast_event(task_id, "task_failed", {"error": str(e)})
+
+
+def _restart_task_bg(project_root: Path, task_id: str, from_stage: int | None):
+    """Restart pipeline from a specific stage in background thread."""
+    try:
+        db_path = get_db_path(project_root)
+        _q = SQLiteQueue(db_path)
+        _task = _q.get(task_id)
+        pipeline_name = _task.metadata.get("pipeline") if _task else None
+        _q.close()
+
+        agents_yaml_path = get_agents_yaml_path(project_root, pipeline_name)
+        agents = load_agents(agents_yaml_path)
+        queue = SQLiteQueue(db_path)
+        pipeline = Pipeline(agents, queue, project_root, config=load_project_config(project_root))
+
+        broadcast_event(task_id, "pipeline_restarting", {"from_stage": from_stage})
+
+        def on_stage_complete(t, stage):
+            broadcast_event(t.id, "stage_complete", {
+                "agent_id": stage.agent_id,
+                "stage_number": stage.stage_number,
+                "output_preview": stage.output_text[:200],
+                "gate_result": stage.gate_result,
+            })
+
+        def on_stage_start(t, agent_id, stage_number):
+            broadcast_event(t.id, "stage_start", {
+                "agent_id": agent_id, "stage_number": stage_number,
+            })
+
+        def on_output(line):
+            broadcast_event(task_id, "stage_output", {"text": line})
+
+        def on_thinking(line):
+            broadcast_event(task_id, "stage_thinking", {"text": line})
+
+        def on_tool(event_type, data):
+            broadcast_event(task_id, f"tool_{event_type}", data)
+
+        result = pipeline.restart_task(
+            task_id,
+            from_stage=from_stage,
+            on_stage_complete=on_stage_complete,
+            on_stage_start=on_stage_start,
+            on_output=on_output,
+            on_thinking=on_thinking,
+            on_tool=on_tool,
+        )
+
+        if result.status == TaskStatus.awaiting_gate:
+            broadcast_event(task_id, "gate_waiting", {
+                "agent_id": result.current_agent_id,
+            })
+        elif result.status == TaskStatus.completed:
+            broadcast_event(task_id, "task_complete", {
+                "status": "completed",
+                "total_stages": len(result.stages),
+            })
+        elif result.status == TaskStatus.failed:
+            broadcast_event(task_id, "task_failed", {
+                "error": result.metadata.get("error", ""),
+            })
+        queue.close()
+    except Exception as e:
+        logger.error("Task restart failed: %s", e)
         broadcast_event(task_id, "task_failed", {"error": str(e)})

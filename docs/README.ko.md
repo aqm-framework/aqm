@@ -366,6 +366,35 @@ gate:
   type: human            # 파이프라인 일시정지 → aqm approve/reject
 ```
 
+### 태스크 재시작 & 복구
+
+실패하거나 완료된 태스크를 원하는 stage부터 재시작 — 처음부터 다시 할 필요 없음.
+
+**동작 방식:**
+- 각 stage 실행 전, aqm이 모든 컨텍스트 파일을 스냅샷 (context.md, 에이전트 노트, 트랜스크립트)
+- 실패 시 런타임의 부분 출력도 보존
+- `aqm restart`로 선택한 stage의 스냅샷에서 컨텍스트를 복원하고 재실행
+
+```bash
+# 실패 지점부터 재시작 (자동 감지)
+aqm restart T-A3F2B1
+
+# 특정 stage부터 재시작
+aqm restart T-A3F2B1 --from-stage 3
+
+# 처음부터 전체 재실행
+aqm restart T-A3F2B1 --from-stage 1
+```
+
+`failed`, `completed`, `stalled`, `cancelled` 상태의 태스크에서 사용 가능. 웹 대시보드에서도 stage 선택 재시작 버튼 제공.
+
+| 이벤트 | 동작 |
+|--------|------|
+| 각 stage 실행 전 | 컨텍스트 파일을 `snapshots/stage_N/`에 스냅샷 |
+| 태스크 성공 완료 | 모든 스냅샷 정리 |
+| 태스크 실패 | 재시작을 위해 스냅샷 보존 |
+| `aqm restart --from-stage N` | 스냅샷에서 컨텍스트 복원, stage 잘라내기, 파이프라인 재개 |
+
 ### MCP 서버
 
 [Model Context Protocol](https://modelcontextprotocol.io/)을 통해 에이전트에 실제 환경 연동 기능 부여.
@@ -443,6 +472,8 @@ aqm list                              # 모든 태스크 목록
 aqm status T-ABC123                   # 태스크 상세
 aqm cancel T-ABC123                   # 태스크 취소
 aqm fix T-ABC123 "색상 수정"           # 컨텍스트 포함 후속 작업
+aqm restart T-ABC123                  # 실패 지점부터 재시작
+aqm restart T-ABC123 --from-stage 2   # 특정 stage부터 재시작
 
 # 게이트 & 사람 입력
 aqm approve T-ABC123                  # 게이트 승인

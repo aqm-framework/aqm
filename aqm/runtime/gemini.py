@@ -21,7 +21,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback, ToolCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, RuntimeExecutionError, ThinkingCallback, ToolCallback
 
 logger = logging.getLogger(__name__)
 
@@ -134,8 +134,9 @@ class GeminiCLIRuntime(AbstractRuntime):
                 logger.error(
                     "[GeminiCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
                 )
-                raise RuntimeError(
-                    f"Gemini CLI execution failed (agent={agent.id}): {error_msg}"
+                raise RuntimeExecutionError(
+                    f"Gemini CLI execution failed (agent={agent.id}): {error_msg}",
+                    partial_output=result.stdout.strip(),
                 )
 
             output = result.stdout.strip()
@@ -242,8 +243,9 @@ class GeminiCLIRuntime(AbstractRuntime):
                     pass
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                f"Gemini CLI timed out (agent={agent.id})"
+            raise RuntimeExecutionError(
+                f"Gemini CLI timed out (agent={agent.id})",
+                partial_output="".join(output_parts).strip(),
             )
         finally:
             if proc.poll() is None:
@@ -261,8 +263,9 @@ class GeminiCLIRuntime(AbstractRuntime):
             logger.error(
                 "[GeminiCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
             )
-            raise RuntimeError(
-                f"Gemini CLI execution failed (agent={agent.id}): {error_msg}"
+            raise RuntimeExecutionError(
+                f"Gemini CLI execution failed (agent={agent.id}): {error_msg}",
+                partial_output="".join(output_parts).strip(),
             )
 
         output = "".join(output_parts).strip()
