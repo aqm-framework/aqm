@@ -263,6 +263,22 @@
           "default": null,
           "description": "Session only: agent ID that produces the final summary after consensus. Also serves as moderator when turn_order is \"moderator\"."
         },
+        "context_window": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 0,
+          "description": "Number of recent pipeline stages to include in full context. 0 means include all stages."
+        },
+        "human_input": {
+          "oneOf": [
+            { "$ref": "#/definitions/HumanInputConfig" },
+            { "type": "boolean", "description": "Shorthand: true enables on_demand mode." },
+            { "type": "string", "enum": ["before", "on_demand", "both"], "description": "Shorthand: string sets the mode directly." },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop input configuration. Allows agents to request input from humans during pipeline execution. Supports shorthand (true or mode string) or full HumanInputConfig object."
+        },
         "chunks": {
           "oneOf": [
             { "$ref": "#/definitions/ChunksConfig" },
@@ -321,6 +337,35 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Model to use for LLM gate evaluation. If null, uses the default model. E.g. \"claude-sonnet-4-20250514\"."
+        },
+        "max_retries": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum number of times an agent can be retried after gate rejection before the pipeline fails. Prevents infinite reject loops."
+        }
+      }
+    },
+    "HumanInputConfig": {
+      "type": "object",
+      "description": "Configuration for human-in-the-loop interaction. Allows agents to request input from humans during pipeline execution.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether human input is active for this agent."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["before", "on_demand", "both"],
+          "default": "on_demand",
+          "description": "When to request human input. 'before': always ask before the agent runs. 'on_demand': agent requests via HUMAN_INPUT directive. 'both': combine before and on_demand."
+        },
+        "prompt": {
+          "type": "string",
+          "default": "",
+          "description": "Custom prompt shown to the user (for 'before' mode). E.g. \"What features do you need?\"."
         }
       }
     },
