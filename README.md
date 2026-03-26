@@ -449,9 +449,16 @@ agents:
 
 ```bash
 aqm search "code review"              # Find community pipelines
-aqm pull security-audit               # Install in one command
-aqm publish --name my-pipeline        # Share yours
+aqm pull security-audit               # Install latest version
+aqm pull security-audit@1.0.0         # Install specific version
+aqm pipeline versions security-audit  # List all versions
+aqm publish --name my-pipeline        # Share yours (auto-increment)
+aqm publish --version 2.0.0           # Share with specific version
 ```
+
+Pipelines support semantic versioning. Each version is stored independently in the registry, allowing teams to pin specific versions or always pull the latest.
+
+The web dashboard also supports versioned pull with a version dropdown, and provides a **visual agent editor** for adding, editing, and deleting agents without writing YAML.
 
 ## CLI Reference
 
@@ -490,9 +497,12 @@ aqm pipeline create review --ai       # AI-generate
 aqm pipeline default review           # Set default
 
 # Registry
-aqm search "code review"              # Search
-aqm pull code-review-pipeline         # Install
-aqm publish --name my-pipeline        # Share
+aqm search "code review"              # Search (shows versions)
+aqm pull code-review-pipeline         # Install latest version
+aqm pull code-review@1.0.0            # Install specific version
+aqm pipeline versions code-review     # List available versions
+aqm publish --name my-pipeline        # Share (auto-increment version)
+aqm publish --version 2.0.0           # Share with specific version
 
 # Dashboard
 aqm serve                             # Web UI at localhost:8000

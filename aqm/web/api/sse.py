@@ -28,6 +28,35 @@ def broadcast_event(task_id: str, event_type: str, data: dict) -> None:
             logger.debug("SSE queue full for task %s, dropping event", task_id)
 
 
+# Global event bus for dashboard-level events (not task-specific)
+_global_subscribers: list[asyncio.Queue] = []
+
+
+def broadcast_global_event(event_type: str, data: dict) -> None:
+    """Push a global event (e.g. task count updates) to all dashboard subscribers."""
+    msg = {"event": event_type, "data": json.dumps(data)}
+    for q in list(_global_subscribers):
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            pass
+
+
+async def subscribe_global() -> AsyncGenerator[str, None]:
+    """SSE generator for global events (dashboard counters, etc.)."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _global_subscribers.append(q)
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=30)
+                yield f"event: {event['event']}\ndata: {event['data']}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+    finally:
+        _global_subscribers.remove(q)
+
+
 async def subscribe(task_id: str) -> AsyncGenerator[str, None]:
     """SSE generator for a specific task. Yields formatted SSE strings."""
     q: asyncio.Queue = asyncio.Queue(maxsize=100)

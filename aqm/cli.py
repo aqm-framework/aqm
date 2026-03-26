@@ -1572,45 +1572,57 @@ def _get_registry_dir() -> Path:
 def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
     """Pull a pipeline and install it into .aqm/pipelines/.
 
-    Searches in order:
-      1. GitHub registry (aqm-framework/registry)
-      2. Local registry (~/.aqm/registry/)
+    Supports version syntax: aqm pull name@1.0.0
 
-    Example: aqm pull software-feature-pipeline
+    \b
+    Examples:
+        aqm pull software-dev            # latest version
+        aqm pull software-dev@1.0.0      # specific version
+        aqm pull software-dev --offline  # local only
     """
-    from aqm.registry import pull_from_github, DEFAULT_REGISTRY_REPO
+    from aqm.registry import (
+        DEFAULT_REGISTRY_REPO,
+        parse_name_version,
+        pull_from_github,
+        pull_from_local,
+        save_to_local_registry,
+    )
 
     root = _require_project()
     registry_repo = repo or DEFAULT_REGISTRY_REPO
 
-    console.print(f"[dim]Searching for '{pipeline_name}'...[/]")
+    name, version = parse_name_version(pipeline_name)
+    version_label = f"@{version}" if version else " (latest)"
+    console.print(f"[dim]Searching for '{name}'{version_label}...[/]")
 
     content: str | None = None
     source_label = ""
+    pulled_version = version or ""
 
     # 1. GitHub registry
     if not offline:
         console.print(f"  [dim]Checking GitHub ({registry_repo})...[/]")
-        result = pull_from_github(pipeline_name, repo=registry_repo)
+        result = pull_from_github(name, version=version, repo=registry_repo)
         if result:
             content, meta = result
+            pulled_version = meta.version or version or ""
             source_label = f"github ({registry_repo})"
-            console.print(f"  [green]Found on GitHub[/]")
+            console.print(f"  [green]Found on GitHub[/]" + (f" v{pulled_version}" if pulled_version else ""))
 
     # 2. Local registry
     if content is None:
-        registry_dir = _get_registry_dir()
-        local_path = registry_dir / pipeline_name / "agents.yaml"
-        if local_path.exists():
-            content = local_path.read_text(encoding="utf-8")
+        result = pull_from_local(name, version=version)
+        if result:
+            content, meta = result
+            pulled_version = meta.version or version or ""
             source_label = "local registry"
 
     if content is None:
         console.print(
-            f"[red]Pipeline '{pipeline_name}' not found.[/]\n"
+            f"[red]Pipeline '{name}' not found.[/]\n"
             f"  Searched:\n"
             f"    - GitHub: {registry_repo}\n"
-            f"    - Local: {_get_registry_dir()}\n"
+            f"    - Local: ~/.aqm/registry/\n"
             f"\n  Use 'aqm search' to list available pipelines."
         )
         sys.exit(1)
@@ -1619,35 +1631,41 @@ def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
     import yaml as _yaml
 
     existing = list_pipelines(root)
-    if pipeline_name in existing:
+    if name in existing:
         if not click.confirm(
-            f"  Pipeline '{pipeline_name}' already exists. Overwrite?",
+            f"  Pipeline '{name}' already exists. Overwrite?",
             default=False,
         ):
             console.print("[dim]Cancelled.[/]")
             return
 
-    target = save_pipeline(root, pipeline_name, content)
+    target = save_pipeline(root, name, content)
+
+    # Also cache in local registry
+    if pulled_version:
+        save_to_local_registry(name, pulled_version, content)
 
     data = _yaml.safe_load(content)
     agent_count = len(data.get("agents", []))
     param_count = len(data.get("params", {}))
 
+    version_str = f" v{pulled_version}" if pulled_version else ""
     console.print(
-        f"[green]✓[/] Pulled [bold]{pipeline_name}[/] from {source_label}\n"
+        f"[green]✓[/] Pulled [bold]{name}[/]{version_str} from {source_label}\n"
         f"  Agents: {agent_count}"
     )
     if param_count:
         console.print(f"  Params: {param_count}")
     console.print(
         f"  Installed to: {target}\n"
-        f"\n  Run [bold]aqm run --pipeline {pipeline_name} \"your task\"[/] to start."
+        f"\n  Run [bold]aqm run --pipeline {name} \"your task\"[/] to start."
     )
 
 
 @cli.command()
 @click.option("--name", default=None, help="Pipeline name (default: directory name)")
 @click.option("--description", default=None, help="Pipeline description")
+@click.option("--version", "pub_version", default=None, help="Version to publish (default: auto-increment)")
 @click.option(
     "--repo",
     default=None,
@@ -1661,17 +1679,25 @@ def pull(pipeline_name: str, repo: str | None, offline: bool) -> None:
 def publish(
     name: str | None,
     description: str | None,
+    pub_version: str | None,
     repo: str | None,
     local: bool,
 ) -> None:
     """Publish .aqm/agents.yaml to the registry.
 
-    By default, creates a PR to the GitHub registry repo.
-    Use --local to save only to ~/.aqm/registry/ without a PR.
-
-    Example: aqm publish --name my-pipeline
+    \b
+    Examples:
+        aqm publish --name my-pipeline              # auto-increment version
+        aqm publish --name my-pipeline --version 2.0.0
+        aqm publish --local                         # local only
     """
-    from aqm.registry import publish_to_github, DEFAULT_REGISTRY_REPO
+    from aqm.registry import (
+        DEFAULT_REGISTRY_REPO,
+        increment_version,
+        list_versions,
+        publish_to_github,
+        save_to_local_registry,
+    )
 
     root = _require_project()
     agents_yaml = get_agents_yaml_path(root)
@@ -1680,7 +1706,6 @@ def publish(
         console.print("[red]Cannot find pipeline YAML file.[/]")
         return
 
-    # Validate the YAML first
     import yaml as _yaml
 
     try:
@@ -1691,71 +1716,63 @@ def publish(
         return
 
     if not isinstance(data, dict) or "agents" not in data:
-        console.print(
-            "[red]Error:[/] agents.yaml must have an 'agents' key."
-        )
+        console.print("[red]Error:[/] agents.yaml must have an 'agents' key.")
         return
 
     pipeline_name = name or root.name
     agent_count = len(data.get("agents", []))
-
-    # Always save to local registry
-    registry_dir = _get_registry_dir()
-    target_dir = registry_dir / pipeline_name
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    target_yaml = target_dir / "agents.yaml"
     content = agents_yaml.read_text(encoding="utf-8")
-    target_yaml.write_text(content, encoding="utf-8")
 
-    import json
+    # Determine version
+    version = pub_version
+    if not version:
+        existing = list_versions(pipeline_name, repo=repo or DEFAULT_REGISTRY_REPO)
+        all_v = sorted(set(existing.get("github", []) + existing.get("local", [])))
+        version = increment_version(all_v[-1]) if all_v else "1.0.0"
 
-    meta = {
+    # Save to local registry (versioned)
+    meta_dict = {
         "name": pipeline_name,
         "description": description or "",
+        "version": version,
         "agents_count": agent_count,
-        "params": len(data.get("params", {})),
-        "source": str(root),
     }
-    (target_dir / "meta.json").write_text(
-        json.dumps(meta, indent=2) + "\n", encoding="utf-8"
-    )
+    save_to_local_registry(pipeline_name, version, content, meta_dict)
 
     console.print(
-        f"[green]✓[/] Saved [bold]{pipeline_name}[/] to local registry\n"
-        f"  Agents: {agent_count}\n"
-        f"  Location: {target_dir}"
+        f"[green]✓[/] Saved [bold]{pipeline_name}[/] v{version} to local registry\n"
+        f"  Agents: {agent_count}"
     )
 
     if local:
         console.print(
-            f"\n  Pull from any project: [bold]aqm pull {pipeline_name} --offline[/]"
+            f"\n  Pull from any project: [bold]aqm pull {pipeline_name}@{version} --offline[/]"
         )
         return
 
     # Publish to GitHub via PR
     registry_repo = repo or DEFAULT_REGISTRY_REPO
-    console.print(
-        f"\n[dim]Creating PR to {registry_repo}...[/]"
-    )
+    console.print(f"\n[dim]Creating PR to {registry_repo}...[/]")
 
     result = publish_to_github(
         agents_yaml_path=agents_yaml,
         pipeline_name=pipeline_name,
         description=description or "",
+        version=version,
         repo=registry_repo,
     )
 
     if result.success:
         console.print(
             f"[green]✓[/] PR created: [bold]{result.pr_url}[/]\n"
+            f"  Version: {result.version}\n"
             f"\n  Your pipeline will be available after the PR is reviewed and merged."
         )
     else:
         console.print(
             f"[yellow]⚠[/] GitHub publish failed: {result.error}\n"
             f"\n  Pipeline is still available locally: "
-            f"[bold]aqm pull {pipeline_name} --offline[/]"
+            f"[bold]aqm pull {pipeline_name}@{version} --offline[/]"
         )
 
 
@@ -2128,6 +2145,44 @@ def pipeline_edit_cmd(name: str | None) -> None:
         console.print(f"[green]✓[/] Pipeline '{name}' updated.")
     else:
         console.print("[dim]Changes discarded.[/]")
+
+
+@pipeline_group.command(name="versions")
+@click.argument("name")
+@click.option("--repo", default=None, help="GitHub registry repo")
+@click.option("--offline", is_flag=True, help="Skip GitHub")
+def pipeline_versions_cmd(name: str, repo: str | None, offline: bool) -> None:
+    """List all available versions of a pipeline.
+
+    Example: aqm pipeline versions code-review
+    """
+    from aqm.registry import DEFAULT_REGISTRY_REPO, list_versions
+
+    registry_repo = repo or DEFAULT_REGISTRY_REPO
+
+    if offline:
+        versions = {"github": [], "local": list_versions(name, include_local=True)["local"]}
+    else:
+        versions = list_versions(name, repo=registry_repo)
+
+    github_v = versions.get("github", [])
+    local_v = versions.get("local", [])
+    all_v = sorted(set(github_v + local_v))
+
+    if not all_v:
+        console.print(f"[dim]No versions found for '{name}'[/]")
+        return
+
+    console.print(f"[bold]{name}[/] — {len(all_v)} version(s)\n")
+    for v in all_v:
+        sources = []
+        if v in github_v:
+            sources.append("[purple]github[/]")
+        if v in local_v:
+            sources.append("[green]local[/]")
+        console.print(f"  {v}  {' '.join(sources)}")
+
+    console.print(f"\n  Pull: [bold]aqm pull {name}@<version>[/]")
 
 
 # ── chunks ──────────────────────────────────────────────────────────────
