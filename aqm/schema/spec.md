@@ -180,7 +180,7 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 |-------|------|----------|---------|-------------|
 | `id` | string | Yes | — | Unique identifier. Pattern: `^[a-zA-Z_][a-zA-Z0-9_-]*$`. Used in handoff targets and CLI. |
 | `name` | string | No | `""` | Human-readable display name. Auto-generated from `id` if omitted (e.g. `code_reviewer` becomes `"Code Reviewer"`). |
-| `runtime` | `"text"` \| `"claude_code"` | No | `"text"` | Execution runtime. `text` = Claude CLI text-only mode (no tool access). `claude_code` = Claude Code CLI subprocess. |
+| `runtime` | `"claude"` \| `"gemini"` \| `"codex"` \| null | Yes (for type: agent) | `null` | Execution runtime. `"claude"` = Claude Code CLI (with MCP + tool streaming). `"gemini"` = Google Gemini CLI. `"codex"` = OpenAI Codex CLI. |
 | `model` | string \| null | No | `null` | Model identifier (e.g. `"claude-sonnet-4-20250514"`). If null, runtime default is used. |
 | `system_prompt` | string | No | `""` | System prompt. Supports `${{ params.X }}` substitution. |
 | `handoffs` | array of Handoff | No | `[]` | Handoff rules for routing output to other agents. |
@@ -189,12 +189,15 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 | `claude_code_flags` | array of string \| null | No | `null` | Extra CLI flags for `claude_code` runtime. |
 | `abstract` | boolean | No | `false` | If `true`, agent is a template only and is removed before execution. |
 | `extends` | string \| null | No | `null` | ID of parent agent. Child inherits parent fields via shallow merge; child fields win. |
+| `context_strategy` | `"own"` \| `"shared"` \| `"both"` | No | `"both"` | What context to inject into `{{ context }}`. Token optimization. |
+| `context_window` | integer | No | `3` | Number of recent stages to include in full (0 = all). |
+| `human_input` | HumanInputConfig \| boolean \| string \| null | No | `null` | Human-in-the-loop input configuration. |
 
 ```yaml
 agents:
   - id: base_reviewer
     abstract: true
-    runtime: text
+    runtime: claude
     model: ${{ params.model }}
 
   - id: code_reviewer
@@ -261,6 +264,7 @@ A gate pauses the pipeline to evaluate the agent's output before proceeding to h
 | `type` | `"llm"` \| `"human"` | No | `"llm"` | `llm` = automatic LLM-based review. `human` = pauses for manual CLI approval. |
 | `prompt` | string | No | `""` | Evaluation prompt for LLM gates. Ignored for human gates. |
 | `model` | string \| null | No | `null` | Model for LLM gate evaluation. If null, uses the default model. |
+| `max_retries` | integer | No | `3` | Maximum retry count after gate rejection before pipeline fails. Prevents infinite reject loops. |
 
 ```yaml
 gate:
@@ -273,6 +277,37 @@ gate:
   prompt: "Does this output meet quality standards? Reply APPROVE or REJECT with reason."
   model: claude-sonnet-4-20250514
 ```
+
+---
+
+### human_input
+
+Configuration for human-in-the-loop interaction.
+
+#### HumanInputConfig
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enabled` | boolean | No | `true` | Whether human input is active. |
+| `mode` | `"before"` \| `"on_demand"` \| `"both"` | No | `"on_demand"` | When to request input. |
+| `prompt` | string | No | `""` | Custom prompt shown to user (for before mode). |
+
+**Shorthand formats:**
+- `human_input: true` — equivalent to `{ enabled: true, mode: "on_demand" }`
+- `human_input: "before"` — equivalent to `{ enabled: true, mode: "before" }`
+
+---
+
+### Session Fields (type: session)
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `participants` | array of string | Yes | `[]` | Agent IDs participating in the session. |
+| `turn_order` | `"round_robin"` \| `"moderator"` | No | `"round_robin"` | Turn ordering strategy. |
+| `max_rounds` | integer | No | `10` | Maximum discussion rounds before termination. |
+| `consensus` | ConsensusConfig \| null | No | `null` | Consensus detection configuration. |
+| `summary_agent` | string \| null | No | `null` | Agent ID that produces the final summary. |
+| `chunks` | ChunksConfig \| null | No | `null` | Chunk decomposition configuration. |
 
 ---
 
@@ -448,7 +483,7 @@ agents:
         task: "Implement the plan"
 
   - id: developer
-    runtime: claude_code
+    runtime: claude
     model: ${{ params.model }}
     system_prompt: "Implement the described changes."
     mcp:

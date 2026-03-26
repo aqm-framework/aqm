@@ -471,6 +471,7 @@ aqm run "Fix bug" --agent planner  # → --agent flag overrides auto
 | `type` | `"llm"` \| `"human"` | `"llm"` | LLM auto-evaluates or human manually approves |
 | `prompt` | `string` | `""` | Custom evaluation prompt (Jinja2: `{{ output }}`, `{{ input }}`) |
 | `model` | `string` | config default | Model override for LLM gate evaluation |
+| `max_retries` | `int` | `3` | Max reject retries before pipeline fails (prevents infinite loops) |
 
 ### MCP Server Fields
 

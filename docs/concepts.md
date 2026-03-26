@@ -125,7 +125,7 @@ The gate result feeds directly into handoff condition evaluation. An `on_approve
 agents:
   - id: qa
     name: QA Agent
-    runtime: claude_code
+    runtime: claude
     system_prompt: |
       Verify the implemented code. Run the test suite.
       Implementation result: {{ input }}
@@ -241,7 +241,7 @@ The deliberate choice to use Markdown files rather than an in-memory state objec
 
 **How it works:** The Pipeline class is initialized with a dictionary of agent definitions (loaded from `agents.yaml`), a queue implementation, and the project root path. When you call `run_task`, the pipeline enters a loop: it looks up the current agent, builds a prompt from the agent's system prompt template plus the accumulated context, dispatches the prompt to the appropriate runtime (API or Claude Code), evaluates the gate if one is configured, records the stage, resolves handoff conditions, and advances to the next agent. The loop continues until either no handoffs match (task completed), a human gate pauses execution (task awaiting_gate), an error occurs (task failed), or the stage count exceeds the safety limit of 20 stages.
 
-The pipeline supports two runtime backends. The `text` runtime calls the Claude CLI in text-only mode with the agent's model and system prompt. The `claude_code` runtime shells out to the Claude Code CLI, which gives agents access to tools like file editing, bash execution, and MCP servers. Each agent declares its runtime in the YAML, so you can mix text-only agents (fast, cheap) with Claude Code agents (powerful, tool-using) in the same pipeline.
+The pipeline supports three runtime backends. The `claude` runtime invokes Claude Code CLI with MCP server and tool support. The `gemini` runtime invokes Google Gemini CLI. The `codex` runtime invokes OpenAI Codex CLI. Each agent declares its runtime in the YAML, so you can mix providers in the same pipeline.
 
 Fan-out is handled by spawning child tasks. When handoff resolution produces multiple targets, the first target continues the current task (preserving the stage history) while each additional target gets a fresh child Task with a `parent_task_id` in its metadata. The child tasks are executed inline via recursive `run_task` calls. This means fan-out is synchronous in the current implementation -- parallel branches execute sequentially but produce independent output in the shared context file.
 
@@ -257,7 +257,7 @@ params:
 agents:
   - id: researcher
     name: Research Agent
-    runtime: text
+    runtime: claude
     model: claude-sonnet-4-20250514
     system_prompt: |
       Research the topic for ${{ params.audience }}.
@@ -269,7 +269,7 @@ agents:
 
   - id: writer
     name: Writing Agent
-    runtime: text
+    runtime: claude
     model: claude-sonnet-4-20250514
     system_prompt: |
       Write a compelling article. Tone: ${{ params.tone }}.
@@ -281,7 +281,7 @@ agents:
 
   - id: editor
     name: Editing Agent
-    runtime: text
+    runtime: claude
     model: claude-sonnet-4-20250514
     system_prompt: |
       Edit this article for quality.
@@ -300,7 +300,7 @@ agents:
 
   - id: publisher
     name: Publishing Agent
-    runtime: text
+    runtime: claude
     model: claude-sonnet-4-20250514
     system_prompt: |
       Finalize and format the approved article.
@@ -315,25 +315,25 @@ agents:
 
 ### Registry
 
-**Definition:** A planned sharing ecosystem that will allow users to publish, discover, and install reusable agent definitions and pipeline templates from a community repository.
+**Definition:** A sharing ecosystem that allows users to publish, discover, and install reusable agent definitions and pipeline templates from a community repository.
 
-**How it works:** The Registry is not yet implemented, but it is a core part of the aqm roadmap. The concept is straightforward: agent definitions and complete pipeline templates are self-contained YAML files. This makes them inherently shareable -- you can already copy an `agents.yaml` from one project to another. The Registry formalizes this by providing a centralized catalog where authors can publish their agent definitions and pipeline templates, and users can install them with a single CLI command.
+**How it works:** The Registry is fully implemented and available for use.
 
-The building blocks for the Registry already exist in the codebase. The `imports` mechanism in `agents.yaml` allows you to pull agent definitions from external YAML files. The `extends` and `abstract` keywords let you define base agents that others can inherit from and customize. The `params` system with `${{ params.X }}` substitution means a published template can expose configuration knobs without requiring users to edit the YAML internals. Together, these features form the composability layer that the Registry will build upon.
+The Registry builds on the composability features in the codebase.
 
-The envisioned workflow is: `aqm registry search "code review"` to find published pipelines, `aqm registry install @author/code-review-pipeline` to download the YAML into your project, and then override parameters via `--param` flags or a local `params.yaml` file. Authors would publish with `aqm registry publish`, and the Registry would handle versioning, dependency resolution, and discoverability.
+The workflow is: `aqm search "code review"` to find published pipelines, `aqm pull code-review-pipeline` to download the YAML into your project, and then override parameters via `--param` flags or a local `params.yaml` file. Authors publish with `aqm publish`, and the Registry handles discoverability via GitHub.
 
 The Registry is designed to address a gap in the current agent framework landscape. While LangChain Hub exists for prompt templates and CrewAI has some community examples, no framework offers a first-class package manager for complete multi-agent pipeline definitions. The combination of YAML-only definitions, parameterization, and imports makes aqm pipelines uniquely suited to this kind of sharing.
 
 **Example:**
 ```yaml
-# Future usage (planned):
+# Usage:
 #
-#   aqm registry install @acme/code-review-pipeline
+#   aqm pull code-review-pipeline
 #
-# This would create agents.yaml with:
+# This downloads agents.yaml with:
 imports:
-  - from: .aqm/registry/acme/code-review-pipeline/agents.yaml
+  - from: .aqm/registry/code-review-pipeline/agents.yaml
     agents: [diff_loader, security, performance, style, summarizer]
 
 params:
@@ -342,11 +342,11 @@ params:
 
 agents:
   # You can extend imported agents to customize them:
-  - id: security
+  - id: security_custom
     extends: security
     system_prompt: |
       Additional context: we use Django and PostgreSQL.
-      {{ parent.system_prompt }}
+      Review: {{ input }}
 ```
 
 **Comparison:**

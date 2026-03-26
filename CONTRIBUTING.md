@@ -12,6 +12,8 @@ This guide covers everything you need to get started.
 
 - Python 3.11 or higher
 - Claude Code CLI installed and authenticated (`npm install -g @anthropic-ai/claude-code && claude login`)
+- (Optional) Google Gemini CLI (`npm install -g @google/gemini-cli`) — required for `gemini` runtime
+- (Optional) OpenAI Codex CLI (`npm install -g @openai/codex`) — required for `codex` runtime
 - Git
 - (Optional) [GitHub CLI](https://cli.github.com/) (`gh`) — required for `aqm publish` to GitHub registry
 
@@ -110,7 +112,7 @@ params:
 agents:
   - id: extractor
     name: Contract Extractor
-    runtime: text
+    runtime: claude
     system_prompt: |
       Extract key clauses, dates, and obligations from this contract.
       Jurisdiction: ${{ params.jurisdiction }}
@@ -121,7 +123,7 @@ agents:
 
   - id: risk_assessor
     name: Risk Assessment Agent
-    runtime: text
+    runtime: claude
     gate:
       type: llm
       prompt: "Are there any high-risk clauses that require human review?"
@@ -133,7 +135,7 @@ agents:
 
   - id: human_review
     name: Human Review Gate
-    runtime: text
+    runtime: claude
     gate:
       type: human
     handoffs:
@@ -142,7 +144,7 @@ agents:
 
   - id: summarizer
     name: Summary Agent
-    runtime: text
+    runtime: claude
     system_prompt: |
       Produce a final contract summary with risk assessment.
       Input: {{ input }}
@@ -175,6 +177,7 @@ aqm/
 │   ├── gate.py           # LLMGate / HumanGate evaluation
 │   ├── context_file.py   # File-based context accumulation
 │   ├── context.py        # Prompt builder
+│   ├── config.py         # ProjectConfig (.aqm/config.yaml)
 │   └── project.py        # Project root detection
 ├── queue/
 │   ├── base.py           # AbstractQueue interface
@@ -182,8 +185,9 @@ aqm/
 │   └── file.py           # FileQueue (for testing)
 ├── runtime/
 │   ├── base.py           # AbstractRuntime interface
-│   ├── text.py            # Claude CLI runtime (text-only)
-│   └── claude_code.py    # Claude Code CLI runtime (tools + MCP)
+│   ├── claude_code.py    # Claude Code CLI (MCP, tool streaming)
+│   ├── gemini.py         # Google Gemini CLI
+│   └── codex.py          # OpenAI Codex CLI
 ├── web/
 │   ├── app.py            # FastAPI app factory
 │   ├── templates.py      # Shared CSS/layout/helpers
@@ -230,6 +234,10 @@ When developing, these are the CLI commands available for testing:
 | `aqm pull` | Pull pipeline from registry |
 | `aqm publish` | Publish pipeline to registry |
 | `aqm search` | Search for pipelines |
+| `aqm priority` | Change task priority |
+| `aqm human-input` | Respond to agent's human input request |
+| `aqm chunks` | Manage work unit chunks |
+| `aqm pipeline` | Pipeline management (list, create, edit, delete, default) |
 
 #### Pull request process
 
