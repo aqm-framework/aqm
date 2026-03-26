@@ -17,6 +17,28 @@ from aqm.core.task import Task, TaskStatus
 from aqm.queue.file import FileQueue
 
 
+def _make_hi_pipeline(tmp_path, agents_dict, mock_response="Agent output"):
+    """Shared helper: create a project, load agents, return pipeline + mock runtime."""
+    yaml_content = {"agents": agents_dict}
+    project_root = tmp_path / "project"
+    aqm_dir = project_root / ".aqm"
+    aqm_dir.mkdir(parents=True)
+    yaml_path = aqm_dir / "agents.yaml"
+    yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
+
+    agents = load_agents(yaml_path)
+    queue = FileQueue(aqm_dir / "file-queue")
+    pipeline = Pipeline(agents, queue, project_root)
+
+    mock_rt = MagicMock()
+    mock_rt.name = "mock"
+    if mock_response is not None:
+        mock_rt.run.return_value = mock_response
+    pipeline._runtimes["claude"] = mock_rt
+
+    return pipeline, agents, queue, mock_rt
+
+
 # ── HumanInputConfig Schema ─────────────────────────────────────────
 
 
@@ -203,28 +225,9 @@ class TestHumanInputParsing:
 
 
 class TestPipelineBeforeMode:
-    def _make_pipeline(self, tmp_path, agents_dict):
-        yaml_content = {"agents": agents_dict}
-        project_root = tmp_path / "project"
-        aqm_dir = project_root / ".aqm"
-        aqm_dir.mkdir(parents=True)
-        yaml_path = aqm_dir / "agents.yaml"
-        yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
-
-        agents = load_agents(yaml_path)
-        queue = FileQueue(aqm_dir / "file-queue")
-        pipeline = Pipeline(agents, queue, project_root)
-
-        # Inject mock runtime
-        mock_rt = MagicMock()
-        mock_rt.name = "mock"
-        mock_rt.run.return_value = "Agent output"
-        pipeline._runtimes["claude"] = mock_rt
-
-        return pipeline, agents, queue, mock_rt
 
     def test_before_mode_pauses_pipeline(self, tmp_path):
-        pipeline, agents, queue, mock_rt = self._make_pipeline(tmp_path, [
+        pipeline, agents, queue, mock_rt = _make_hi_pipeline(tmp_path, [
             {
                 "id": "planner",
                 "runtime": "claude",
@@ -249,7 +252,7 @@ class TestPipelineBeforeMode:
         mock_rt.run.assert_not_called()
 
     def test_before_mode_resume_runs_agent(self, tmp_path):
-        pipeline, agents, queue, mock_rt = self._make_pipeline(tmp_path, [
+        pipeline, agents, queue, mock_rt = _make_hi_pipeline(tmp_path, [
             {
                 "id": "planner",
                 "runtime": "claude",
@@ -276,7 +279,7 @@ class TestPipelineBeforeMode:
         assert "User Input" in prompt or "PostgreSQL" in prompt or "dark mode" in prompt
 
     def test_before_mode_disabled_skips(self, tmp_path):
-        pipeline, agents, queue, mock_rt = self._make_pipeline(tmp_path, [
+        pipeline, agents, queue, mock_rt = _make_hi_pipeline(tmp_path, [
             {
                 "id": "worker",
                 "runtime": "claude",
@@ -298,26 +301,9 @@ class TestPipelineBeforeMode:
 
 
 class TestPipelineOnDemandMode:
-    def _make_pipeline(self, tmp_path, agents_dict):
-        yaml_content = {"agents": agents_dict}
-        project_root = tmp_path / "project"
-        aqm_dir = project_root / ".aqm"
-        aqm_dir.mkdir(parents=True)
-        yaml_path = aqm_dir / "agents.yaml"
-        yaml_path.write_text(yaml.dump(yaml_content), encoding="utf-8")
-
-        agents = load_agents(yaml_path)
-        queue = FileQueue(aqm_dir / "file-queue")
-        pipeline = Pipeline(agents, queue, project_root)
-
-        mock_rt = MagicMock()
-        mock_rt.name = "mock"
-        pipeline._runtimes["claude"] = mock_rt
-
-        return pipeline, agents, queue, mock_rt
 
     def test_on_demand_pauses_on_directive(self, tmp_path):
-        pipeline, agents, queue, mock_rt = self._make_pipeline(tmp_path, [
+        pipeline, agents, queue, mock_rt = _make_hi_pipeline(tmp_path, [
             {
                 "id": "dev",
                 "runtime": "claude",
@@ -343,7 +329,7 @@ class TestPipelineOnDemandMode:
         assert "authentication" in pending["questions"][0].lower()
 
     def test_on_demand_no_directive_completes(self, tmp_path):
-        pipeline, agents, queue, mock_rt = self._make_pipeline(tmp_path, [
+        pipeline, agents, queue, mock_rt = _make_hi_pipeline(tmp_path, [
             {
                 "id": "dev",
                 "runtime": "claude",
@@ -361,7 +347,7 @@ class TestPipelineOnDemandMode:
         assert result.status == TaskStatus.completed
 
     def test_on_demand_resume(self, tmp_path):
-        pipeline, agents, queue, mock_rt = self._make_pipeline(tmp_path, [
+        pipeline, agents, queue, mock_rt = _make_hi_pipeline(tmp_path, [
             {
                 "id": "dev",
                 "runtime": "claude",

@@ -12,8 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from aqm.core.agent import AgentDefinition, ConsensusConfig, load_agents
-from aqm.core.context import build_prompt
+from aqm.core.agent import AgentDefinition, load_agents
 from aqm.core.context_file import ContextFile
 from aqm.core.gate import GateResult
 from aqm.core.pipeline import Pipeline
@@ -173,8 +172,11 @@ class TestContextStrategies:
     def test_strategy_own(self, tmp_project):
         prompts = self._run_two_agent_pipeline(tmp_project, "own")
         second_prompt = prompts[1][1]
-        # 'own' strategy: context is empty (no private notes), but input still has handoff payload
-        assert "Context: \n" in second_prompt or "Context: \nInput:" in second_prompt
+        # 'own' strategy: {{ context }} is empty (second has no private notes yet)
+        # but {{ input }} still carries the handoff payload from first
+        context_part = second_prompt.split("Input:")[0]
+        assert context_part.strip().endswith("Context:"), "context should be empty for 'own'"
+        assert "Output from first" in second_prompt  # input still has payload
 
     def test_strategy_last_only(self, tmp_project):
         prompts = self._run_two_agent_pipeline(tmp_project, "last_only")
@@ -184,155 +186,18 @@ class TestContextStrategies:
     def test_strategy_none(self, tmp_project):
         prompts = self._run_two_agent_pipeline(tmp_project, "none")
         second_prompt = prompts[1][1]
-        # 'none' strategy: context is empty, but input still has handoff payload
-        assert "Context: \n" in second_prompt or "Context: \nInput:" in second_prompt
+        # 'none' strategy: {{ context }} is empty, {{ input }} carries handoff payload
+        context_part = second_prompt.split("Input:")[0]
+        assert context_part.strip().endswith("Context:"), "context should be empty for 'none'"
+        assert "Output from first" in second_prompt  # input still has payload
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# 3. CONVERSATIONAL SESSION + CONSENSUS VOTING
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestSessionConsensus:
-    """Session with round-robin discussion and vote-based consensus."""
-
-    def test_vote_all_consensus(self, tmp_project):
-        agents = {
-            "arch": AgentDefinition(
-                id="arch", runtime="claude",
-                system_prompt="Architect: {{ input }} {{ transcript }}",
-            ),
-            "sec": AgentDefinition(
-                id="sec", runtime="claude",
-                system_prompt="Security: {{ input }} {{ transcript }}",
-            ),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["arch", "sec"],
-                max_rounds=3,
-                consensus=ConsensusConfig(method="vote", require="all"),
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        call_count = [0]
-
-        def respond(prompt, agent, task, **kw):
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                # Round 1: both agree
-                return f"[{agent.id}] Analysis done. VOTE: AGREE"
-            return f"[{agent.id}] extra round"
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Choose auth method")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        assert result.status == TaskStatus.completed
-        assert result.metadata.get("session_consensus") is True
-        assert result.metadata.get("session_rounds") == 1
-
-        # Verify transcript was created
-        ctx_file = ContextFile(get_tasks_dir(tmp_project) / task.id)
-        transcript = ctx_file.read_transcript()
-        assert "arch" in transcript
-        assert "sec" in transcript
-        assert "VOTE: AGREE" in transcript
-
-    def test_vote_majority_consensus(self, tmp_project):
-        agents = {
-            "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }} {{ transcript }}"),
-            "b": AgentDefinition(id="b", runtime="claude", system_prompt="{{ input }} {{ transcript }}"),
-            "c": AgentDefinition(id="c", runtime="claude", system_prompt="{{ input }} {{ transcript }}"),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["a", "b", "c"],
-                max_rounds=2,
-                consensus=ConsensusConfig(method="vote", require="majority"),
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        def respond(prompt, agent, task, **kw):
-            if agent.id in ("a", "b"):
-                return f"[{agent.id}] I agree. VOTE: AGREE"
-            return f"[{agent.id}] I disagree."  # c never agrees
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Vote test")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        # 2 out of 3 = majority
-        assert result.metadata.get("session_consensus") is True
-
-    def test_no_consensus_max_rounds(self, tmp_project):
-        agents = {
-            "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }}"),
-            "b": AgentDefinition(id="b", runtime="claude", system_prompt="{{ input }}"),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["a", "b"],
-                max_rounds=2,
-                consensus=ConsensusConfig(method="vote", require="all"),
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        def respond(prompt, agent, task, **kw):
-            return f"[{agent.id}] No agreement"  # Never votes
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Deadlock test")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        assert result.metadata.get("session_consensus") is False
-        assert result.metadata.get("session_rounds") == 2
-
-    def test_session_then_handoff(self, tmp_project):
-        """Session completes, then hands off to next agent."""
-        agents = {
-            "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }} {{ transcript }}"),
-            "b": AgentDefinition(id="b", runtime="claude", system_prompt="{{ input }} {{ transcript }}"),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["a", "b"],
-                max_rounds=2,
-                consensus=ConsensusConfig(method="vote", require="all"),
-                handoffs=[{"to": "implementer"}],
-            ),
-            "implementer": AgentDefinition(
-                id="implementer", runtime="claude",
-                system_prompt="Implement: {{ input }}",
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        call_order = []
-
-        def respond(prompt, agent, task, **kw):
-            call_order.append(agent.id)
-            if agent.id in ("a", "b"):
-                return f"[{agent.id}] VOTE: AGREE"
-            return f"Implemented based on session"
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Session then implement")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        assert result.status == TaskStatus.completed
-        assert "implementer" in call_order
-
+# Session consensus tests are in test_session.py (comprehensive coverage).
+# Chunk decomposition tests are in test_chunks.py (comprehensive coverage).
+# Only non-duplicated integration tests remain here.
 
 # ═══════════════════════════════════════════════════════════════════════
-# 4. QUALITY GATES — LLM approve/reject + retry
+# 3. QUALITY GATES — LLM approve/reject + retry
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -366,6 +231,7 @@ class TestQualityGates:
         assert result.status == TaskStatus.completed
         assert len(result.stages) == 2
         assert result.stages[0].gate_result == "approved"
+        assert mock_gate.evaluate.call_count == 1
 
     def test_gate_reject_retries(self, tmp_project):
         agents = {
@@ -454,6 +320,8 @@ class TestQualityGates:
         result = pipeline.run_task(task, "dev")
 
         assert result.status == TaskStatus.awaiting_gate
+        assert len(result.stages) == 1
+        assert result.stages[0].output_text == "code output"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -574,107 +442,7 @@ class TestHandoffStrategies:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 6. CHUNK DECOMPOSITION
-# ═══════════════════════════════════════════════════════════════════════
-
-
-class TestChunkDecomposition:
-
-    def test_chunks_initial_and_directives(self, tmp_project):
-        """Session with initial chunks, agents complete them via directives."""
-        agents = {
-            "pm": AgentDefinition(id="pm", runtime="claude", system_prompt="{{ input }} {{ chunks }}"),
-            "dev": AgentDefinition(id="dev", runtime="claude", system_prompt="{{ input }} {{ chunks }}"),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["pm", "dev"],
-                max_rounds=2,
-                consensus=ConsensusConfig(method="vote", require="all", require_chunks_done=True),
-                chunks={"enabled": True, "initial": ["Setup DB", "Build API", "Write tests"]},
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        round_num = [0]
-
-        def respond(prompt, agent, task, **kw):
-            round_num[0] += 1
-            if round_num[0] <= 2:
-                # Round 1: complete chunks
-                if agent.id == "pm":
-                    return "CHUNK_DONE: C-001\nCHUNK_DONE: C-002\nLet's proceed. VOTE: AGREE"
-                return "CHUNK_DONE: C-003\nAll done. VOTE: AGREE"
-            return f"[{agent.id}] extra"
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Chunk test")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        assert result.metadata.get("session_consensus") is True
-        assert result.metadata.get("chunks_total") == 3
-        assert result.metadata.get("chunks_done") == 3
-
-    def test_chunks_block_consensus(self, tmp_project):
-        """require_chunks_done=True blocks consensus when chunks are incomplete."""
-        agents = {
-            "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }}"),
-            "b": AgentDefinition(id="b", runtime="claude", system_prompt="{{ input }}"),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["a", "b"],
-                max_rounds=2,
-                consensus=ConsensusConfig(method="vote", require="all", require_chunks_done=True),
-                chunks={"enabled": True, "initial": ["Task 1", "Task 2"]},
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        def respond(prompt, agent, task, **kw):
-            # Everyone votes agree but chunks are NOT completed
-            return f"[{agent.id}] VOTE: AGREE"
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Blocked chunks")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        # Consensus should NOT be reached because chunks not done
-        assert result.metadata.get("session_consensus") is False
-
-    def test_chunk_add_directive(self, tmp_project):
-        """Agents can add new chunks via CHUNK_ADD directive."""
-        agents = {
-            "a": AgentDefinition(id="a", runtime="claude", system_prompt="{{ input }}"),
-            "b": AgentDefinition(id="b", runtime="claude", system_prompt="{{ input }}"),
-            "session": AgentDefinition(
-                id="session", type="session",
-                participants=["a", "b"],
-                max_rounds=1,
-                consensus=ConsensusConfig(method="vote", require="all"),
-                chunks={"enabled": True, "initial": []},
-            ),
-        }
-        pipeline, queue = _make_pipeline(agents, tmp_project)
-
-        def respond(prompt, agent, task, **kw):
-            if agent.id == "a":
-                return "CHUNK_ADD: New work item\nVOTE: AGREE"
-            return "VOTE: AGREE"
-
-        pipeline._runtimes["claude"] = _mock_runtime(respond)
-
-        task = Task(description="Chunk add")
-        queue.push(task, "session")
-        result = pipeline.run_task(task, "session")
-
-        assert result.metadata.get("chunks_total") == 1
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 7. HUMAN INPUT — before and on_demand modes
+# 5. HUMAN INPUT — before and on_demand modes
 # ═══════════════════════════════════════════════════════════════════════
 
 

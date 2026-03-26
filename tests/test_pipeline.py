@@ -10,7 +10,7 @@ import yaml
 from aqm.core.agent import AgentDefinition, load_agents
 from aqm.core.context import build_payload, build_prompt, render_template
 from aqm.core.context_file import ContextFile
-from aqm.core.gate import GateResult, LLMGate
+from aqm.core.gate import GateResult
 from aqm.core.project import find_project_root, init_project
 from aqm.core.task import Task, TaskStatus
 from aqm.queue.file import FileQueue
@@ -31,6 +31,9 @@ class TestTask:
         t1 = Task(description="a")
         t2 = Task(description="b")
         assert t1.id != t2.id
+        assert t1.id.startswith("T-")
+        assert t2.id.startswith("T-")
+        assert len(t1.id) == 8  # T-XXXXXX
 
     def test_task_serialization(self):
         task = Task(description="serialization test")
@@ -642,36 +645,8 @@ class TestGenerationPromptConsistency:
         assert "aqm/v0.1" in content
 
 
-# ── Gate ────────────────────────────────────────────────────────────────
-
-
-class TestGate:
-    def test_gate_parse_approved(self):
-        gate = LLMGate.__new__(LLMGate)
-        result = gate._parse_response('{"decision": "approved", "reason": "good"}')
-        assert result.decision == "approved"
-        assert result.reason == "good"
-
-    def test_gate_parse_rejected(self):
-        gate = LLMGate.__new__(LLMGate)
-        result = gate._parse_response('{"decision": "rejected", "reason": "bad"}')
-        assert result.decision == "rejected"
-
-    def test_gate_parse_fallback_approved(self):
-        gate = LLMGate.__new__(LLMGate)
-        result = gate._parse_response("I think this is APPROVED because it looks good")
-        assert result.decision == "approved"
-
-    def test_gate_parse_fallback_rejected(self):
-        gate = LLMGate.__new__(LLMGate)
-        result = gate._parse_response("This should be REJECTED due to issues")
-        assert result.decision == "rejected"
-
-    def test_gate_parse_unknown(self):
-        gate = LLMGate.__new__(LLMGate)
-        result = gate._parse_response("I have no opinion")
-        assert result.decision == "rejected"  # Default is reject
-
+# Gate parsing tests are in test_bugfixes.py (comprehensive coverage
+# including nested JSON, "not approved" negation, word boundary matching).
 
 # ── Handoff Routing ────────────────────────────────────────────────────
 
