@@ -215,7 +215,7 @@ def _load_spec() -> str:
     # Fallback: minimal spec summary
     return (
         "agents.yaml format: apiVersion: aqm/v0.1, agents list with id, name, "
-        "runtime (text|claude_code), system_prompt, handoffs (to, task, condition, payload), "
+        "runtime (claude|gemini|codex), system_prompt, handoffs (to, task, condition, payload), "
         "gate (type: llm|human, prompt), mcp servers, params section."
     )
 
@@ -503,7 +503,7 @@ USER REQUEST: {description}
 RULES:
 1. First line of output MUST be: apiVersion: aqm/v0.1
 2. Output raw YAML only — no ```yaml fences, no comments explaining what you did, no introductory text
-3. Every agent needs: id, name, runtime (text or claude_code), system_prompt
+3. Every agent needs: id, name, runtime (claude, gemini, or codex), system_prompt
 4. CRITICAL: Every agent's system_prompt MUST include {{{{ input }}}} to receive data from the previous agent.
    Without {{{{ input }}}}, the agent cannot see what the previous agent produced.
    Example: "Analyze the following plan and implement it:\n\n{{{{ input }}}}"
@@ -680,11 +680,13 @@ def _structural_validate(data: dict) -> list[str]:
         if "id" not in agent:
             errors.append(f"{prefix}: 'id' is required")
 
+        agent_type = agent.get("type", "agent")
         runtime = agent.get("runtime")
-        if runtime is None:
-            errors.append(f"{prefix}: 'runtime' is required")
-        elif runtime not in valid_runtimes:
-            errors.append(f"{prefix} -> runtime: '{runtime}' is not one of {valid_runtimes}")
+        if agent_type != "session":
+            if runtime is None:
+                errors.append(f"{prefix}: 'runtime' is required")
+            elif runtime not in valid_runtimes:
+                errors.append(f"{prefix} -> runtime: '{runtime}' is not one of {valid_runtimes}")
 
         gate = agent.get("gate")
         if isinstance(gate, dict):

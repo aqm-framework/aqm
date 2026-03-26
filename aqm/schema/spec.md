@@ -36,10 +36,11 @@ apiVersion: aqm/v0.1
 
 ## Top-Level Structure
 
-An agents.yaml file has four top-level fields:
+An agents.yaml file has five top-level fields:
 
 ```yaml
 apiVersion: aqm/v0.1       # Required
+entry_point: first           # Optional — agent selection strategy
 params:                      # Optional — parameter declarations
   model: claude-sonnet-4-20250514
 imports:                     # Optional — import agents from other files
@@ -52,6 +53,7 @@ agents:                      # Required — at least one agent
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `apiVersion` | string | Yes | — | Spec version. Must be `"aqm/v0.1"`. |
+| `entry_point` | `"first"` \| `"auto"` | No | `"first"` | How to select the starting agent. `"first"`: always use the first agent in the list. `"auto"`: LLM analyzes the user input and picks the best starting agent. |
 | `params` | object | No | `{}` | Parameter declarations. Keys are param names, values are `ParamDefinition` or shorthand. |
 | `imports` | array of ImportSpec | No | `[]` | External YAML files to import agents from. |
 | `agents` | array of AgentDefinition | Yes | — | Agent definitions. Must contain at least one entry. |

@@ -397,6 +397,251 @@ class TestYamlGenerationHelpers:
         assert "```" not in result
 
 
+# ── Structural Validation ──────────────────────────────────────────────
+
+
+class TestStructuralValidate:
+    """Tests for _structural_validate covering runtime and session handling."""
+
+    def test_valid_agent_passes(self):
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [
+                {"id": "planner", "runtime": "claude", "system_prompt": "Plan {{ input }}"},
+            ],
+        }
+        errors = _structural_validate(data)
+        assert errors == []
+
+    def test_missing_runtime_rejected(self):
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [{"id": "planner", "system_prompt": "Plan"}],
+        }
+        errors = _structural_validate(data)
+        assert any("runtime" in e for e in errors)
+
+    def test_invalid_runtime_rejected(self):
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [
+                {"id": "a", "runtime": "text", "system_prompt": "hi"},
+            ],
+        }
+        errors = _structural_validate(data)
+        assert any("text" in e for e in errors)
+
+    def test_invalid_runtime_claude_code_rejected(self):
+        """Ensure the old 'claude_code' runtime name is rejected."""
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [
+                {"id": "a", "runtime": "claude_code", "system_prompt": "hi"},
+            ],
+        }
+        errors = _structural_validate(data)
+        assert any("claude_code" in e for e in errors)
+
+    def test_session_agent_no_runtime_ok(self):
+        """Session nodes (type: session) do NOT require runtime."""
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [
+                {
+                    "id": "discussion",
+                    "type": "session",
+                    "participants": ["a", "b"],
+                    "system_prompt": "Discuss",
+                },
+            ],
+        }
+        errors = _structural_validate(data)
+        # No runtime error expected for session nodes
+        assert not any("runtime" in e for e in errors)
+
+    def test_session_and_agent_mixed(self):
+        """Mixed pipeline: regular agents need runtime, sessions don't."""
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [
+                {"id": "planner", "runtime": "claude", "system_prompt": "Plan"},
+                {
+                    "id": "review_session",
+                    "type": "session",
+                    "participants": ["planner"],
+                    "system_prompt": "Review",
+                },
+            ],
+        }
+        errors = _structural_validate(data)
+        assert errors == []
+
+    def test_all_valid_runtimes(self):
+        from aqm.core.project import _structural_validate
+
+        for rt in ("claude", "gemini", "codex"):
+            data = {
+                "apiVersion": "aqm/v0.1",
+                "agents": [{"id": "a", "runtime": rt, "system_prompt": "hi"}],
+            }
+            errors = _structural_validate(data)
+            assert not any("runtime" in e for e in errors), f"runtime={rt} should be valid"
+
+    def test_payload_must_be_string(self):
+        from aqm.core.project import _structural_validate
+
+        data = {
+            "apiVersion": "aqm/v0.1",
+            "agents": [
+                {
+                    "id": "a",
+                    "runtime": "claude",
+                    "system_prompt": "hi",
+                    "handoffs": [{"to": "b", "payload": {"key": "val"}}],
+                },
+            ],
+        }
+        errors = _structural_validate(data)
+        assert any("payload" in e for e in errors)
+
+    def test_fix_required_params(self):
+        """required params without defaults should be fixed."""
+        from aqm.core.project import _fix_required_params
+
+        yaml_text = (
+            "apiVersion: aqm/v0.1\n"
+            "params:\n"
+            "  task_desc:\n"
+            "    type: string\n"
+            "    required: true\n"
+            "agents:\n"
+            "  - id: a\n"
+            "    runtime: claude\n"
+            "    system_prompt: hi\n"
+        )
+        result = _fix_required_params(yaml_text)
+        import yaml as _yaml
+
+        data = _yaml.safe_load(result)
+        param = data["params"]["task_desc"]
+        assert param.get("required") is not True
+        assert "default" in param
+
+
+# ── Default Template Validation ────────────────────────────────────────
+
+
+class TestDefaultTemplate:
+    """Verify DEFAULT_AGENTS_YAML conforms to the spec."""
+
+    def test_default_yaml_parses(self):
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+
+        data = yaml.safe_load(DEFAULT_AGENTS_YAML)
+        assert data["apiVersion"] == "aqm/v0.1"
+        assert isinstance(data["agents"], list)
+        assert len(data["agents"]) >= 2
+
+    def test_default_yaml_passes_structural_validate(self):
+        from aqm.core.project import DEFAULT_AGENTS_YAML, _structural_validate
+
+        data = yaml.safe_load(DEFAULT_AGENTS_YAML)
+        errors = _structural_validate(data)
+        assert errors == [], f"Default template has validation errors: {errors}"
+
+    def test_default_yaml_agents_have_input_template(self):
+        """Every agent system_prompt must include {{ input }}."""
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+
+        data = yaml.safe_load(DEFAULT_AGENTS_YAML)
+        for agent in data["agents"]:
+            sp = agent.get("system_prompt", "")
+            assert "{{ input }}" in sp, (
+                f"Agent '{agent['id']}' system_prompt missing '{{{{ input }}}}'"
+            )
+
+    def test_default_yaml_valid_runtimes(self):
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+
+        data = yaml.safe_load(DEFAULT_AGENTS_YAML)
+        valid = {"claude", "gemini", "codex"}
+        for agent in data["agents"]:
+            rt = agent.get("runtime")
+            if agent.get("type") != "session":
+                assert rt in valid, f"Agent '{agent['id']}' has invalid runtime: {rt}"
+
+    def test_default_yaml_schema_validation(self):
+        """Validate default template against JSON Schema if jsonschema is available."""
+        from aqm.core.project import DEFAULT_AGENTS_YAML
+
+        try:
+            import jsonschema
+        except ImportError:
+            pytest.skip("jsonschema not installed")
+
+        import json
+
+        schema_path = Path(__file__).parent.parent / "aqm" / "schema" / "agents-schema.json"
+        if not schema_path.exists():
+            pytest.skip("agents-schema.json not found")
+
+        schema = json.loads(schema_path.read_text())
+        data = yaml.safe_load(DEFAULT_AGENTS_YAML)
+        jsonschema.validate(data, schema)
+
+    def test_init_project_creates_valid_pipeline(self, tmp_path):
+        """init_project() creates a pipeline file that passes validation."""
+        from aqm.core.project import _structural_validate, init_project
+
+        root = init_project(tmp_path)
+        pipeline_file = root / ".aqm" / "pipelines" / "default.yaml"
+        assert pipeline_file.exists()
+
+        data = yaml.safe_load(pipeline_file.read_text())
+        errors = _structural_validate(data)
+        assert errors == [], f"Generated pipeline has errors: {errors}"
+
+
+# ── Generation Prompt Consistency ──────────────────────────────────────
+
+
+class TestGenerationPromptConsistency:
+    """Verify the AI generation prompt matches the current spec."""
+
+    def test_prompt_mentions_valid_runtimes_only(self):
+        """The generation prompt must not reference old runtime names as valid values."""
+        from aqm.core.project import generate_agents_yaml
+        import inspect
+
+        source = inspect.getsource(generate_agents_yaml)
+        # Should NOT reference old runtime values in runtime selection context
+        # (claude_code_flags is a valid field name, so only check runtime contexts)
+        assert "runtime (text" not in source, "Prompt still references 'text' runtime"
+        assert "text|claude_code" not in source, "Prompt still references old runtime enum"
+        assert "runtime: text" not in source, "Prompt uses 'text' as runtime value"
+
+    def test_prompt_includes_spec(self):
+        """The generation prompt should load and include the spec."""
+        from aqm.core.project import SPEC_PATH
+
+        assert SPEC_PATH.exists(), f"Spec file not found at {SPEC_PATH}"
+        content = SPEC_PATH.read_text()
+        assert "apiVersion" in content
+        assert "aqm/v0.1" in content
+
+
 # ── Gate ────────────────────────────────────────────────────────────────
 
 
