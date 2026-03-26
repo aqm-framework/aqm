@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aqm"
-version = "1.2.15"
+version = "1.2.16"
 description = "AI agent orchestration framework — build, share, and run YAML pipelines"
 readme = "README.md"
 requires-python = ">=3.11"
