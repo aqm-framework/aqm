@@ -379,3 +379,65 @@ class TestContextFileEdgeCases:
         content = cf.read_agent_context("dev")
         # agent context stores only output now
         assert "日本語の出力" in content
+
+
+# ── P6: ClaudeCodeRuntime command build ──────────────────────────────
+
+
+class TestClaudeCodeRuntimeCmdBuild:
+    """Test that ClaudeCodeRuntime builds the command correctly."""
+
+    def test_print_mode_auto_adds_skip_permissions(self):
+        """--print mode should auto-add --dangerously-skip-permissions."""
+        from unittest.mock import patch
+
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"))
+        agent = AgentDefinition(
+            id="test_agent",
+            runtime="claude",
+            claude_code_flags=["--allowedTools", "Edit,Read"],
+        )
+        task = Task(description="test")
+
+        # Capture the command by patching subprocess.run
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="ok", stderr=""
+            )
+            with patch(
+                "aqm.runtime.claude_code._check_claude_cli_available"
+            ):
+                rt.run("test prompt", agent, task)
+
+        cmd = mock_run.call_args[0][0]
+        assert "--dangerously-skip-permissions" in cmd
+        assert "--print" in cmd
+
+    def test_skip_permissions_not_duplicated(self):
+        """If user already set --dangerously-skip-permissions, don't duplicate."""
+        from unittest.mock import patch
+
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"))
+        agent = AgentDefinition(
+            id="test_agent",
+            runtime="claude",
+            claude_code_flags=["--dangerously-skip-permissions"],
+        )
+        task = Task(description="test")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout="ok", stderr=""
+            )
+            with patch(
+                "aqm.runtime.claude_code._check_claude_cli_available"
+            ):
+                rt.run("test prompt", agent, task)
+
+        cmd = mock_run.call_args[0][0]
+        count = cmd.count("--dangerously-skip-permissions")
+        assert count == 1
