@@ -429,7 +429,7 @@ class TestClaudeCodeRuntimeCmdBuild:
         """--print mode should auto-add --dangerously-skip-permissions."""
         from unittest.mock import patch
 
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         rt = ClaudeCodeRuntime(Path("/tmp/project"))
         agent = AgentDefinition(
@@ -445,7 +445,7 @@ class TestClaudeCodeRuntimeCmdBuild:
                 returncode=0, stdout="ok", stderr=""
             )
             with patch(
-                "aqm.runtime.claude_code._check_claude_cli_available"
+                "aqm.runtime.claude._check_claude_cli_available"
             ):
                 rt.run("test prompt", agent, task)
 
@@ -457,7 +457,7 @@ class TestClaudeCodeRuntimeCmdBuild:
         """If user already set --dangerously-skip-permissions, don't duplicate."""
         from unittest.mock import patch
 
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         rt = ClaudeCodeRuntime(Path("/tmp/project"))
         agent = AgentDefinition(
@@ -472,7 +472,7 @@ class TestClaudeCodeRuntimeCmdBuild:
                 returncode=0, stdout="ok", stderr=""
             )
             with patch(
-                "aqm.runtime.claude_code._check_claude_cli_available"
+                "aqm.runtime.claude._check_claude_cli_available"
             ):
                 rt.run("test prompt", agent, task)
 
@@ -493,7 +493,7 @@ class TestStreamingHeartbeat:
         import selectors
         from unittest.mock import patch, MagicMock
 
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
         agent = AgentDefinition(
@@ -557,7 +557,7 @@ class TestCallbackErrorLogging:
         import io
         import logging
         from unittest.mock import patch, MagicMock
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
         agent = AgentDefinition(id="test_agent", runtime="claude")
@@ -587,7 +587,7 @@ class TestCallbackErrorLogging:
             return [(None, None)]  # always data ready
         mock_sel.select = mock_select
 
-        with caplog.at_level(logging.WARNING, logger="aqm.runtime.claude_code"):
+        with caplog.at_level(logging.WARNING, logger="aqm.runtime.claude"):
             with patch("subprocess.Popen", return_value=mock_proc):
                 with patch("selectors.DefaultSelector", return_value=mock_sel):
                     rt._run_stream_json(["claude", "--print"], agent, on_output=failing_callback)
@@ -605,7 +605,7 @@ class TestToolStreaming:
     def test_claude_tool_start_from_content_block_start(self):
         import io, json
         from unittest.mock import patch, MagicMock
-        from aqm.runtime.claude_code import ClaudeCodeRuntime
+        from aqm.runtime.claude import ClaudeCodeRuntime
 
         rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
         agent = AgentDefinition(id="test", runtime="claude")

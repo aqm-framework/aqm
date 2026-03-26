@@ -30,8 +30,6 @@ REGISTRY_BRANCH = "main"
 
 # GitHub raw content base URL
 _RAW_BASE = "https://raw.githubusercontent.com/{repo}/{branch}"
-# GitHub API base URL
-_API_BASE = "https://api.github.com/repos/{repo}"
 
 
 @dataclass
