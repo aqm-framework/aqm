@@ -159,8 +159,8 @@ class ClaudeCodeRuntime(AbstractRuntime):
         if agent.model:
             cmd.extend(["--model", agent.model])
 
-        if agent.claude_code_flags:
-            cmd.extend(agent.claude_code_flags)
+        if agent.cli_flags:
+            cmd.extend(agent.cli_flags)
 
         # --- Non-interactive permission handling ----------------------------------
         # In --print mode, stdin is not available so Claude cannot prompt for

@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Any, Literal, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+import warnings
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +151,7 @@ class AgentDefinition(BaseModel):
     handoffs: list[Handoff] = Field(default_factory=list)
     gate: Optional[GateConfig] = None
     mcp: list[MCPServerConfig] = Field(default_factory=list)
-    claude_code_flags: Optional[list[str]] = None
+    cli_flags: Optional[list[str]] = None
     context_strategy: Literal["none", "last_only", "own", "shared", "both"] = "both"
     context_window: int = 3  # Number of recent stages to include in full (0 = all)
     human_input: Optional[HumanInputConfig] = None
@@ -189,6 +191,24 @@ class AgentDefinition(BaseModel):
             else:
                 result.append(item)
         return result
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_claude_code_flags(cls, data: Any) -> Any:
+        """Accept deprecated ``claude_code_flags`` and map to ``cli_flags``."""
+        if isinstance(data, dict) and "claude_code_flags" in data:
+            warnings.warn(
+                "The 'claude_code_flags' field is deprecated. "
+                "Use 'cli_flags' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if "cli_flags" not in data:
+                data["cli_flags"] = data.pop("claude_code_flags")
+            else:
+                # cli_flags takes precedence; drop the deprecated key
+                data.pop("claude_code_flags")
+        return data
 
 
 class AgentsConfig(BaseModel):
