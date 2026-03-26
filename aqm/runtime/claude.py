@@ -15,7 +15,7 @@ from pathlib import Path
 
 from aqm.core.agent import AgentDefinition, MCPServerConfig
 from aqm.core.task import Task
-from aqm.runtime.base import AbstractRuntime, OutputCallback, ThinkingCallback, ToolCallback
+from aqm.runtime.base import AbstractRuntime, OutputCallback, RuntimeExecutionError, ThinkingCallback, ToolCallback
 
 logger = logging.getLogger(__name__)
 
@@ -213,8 +213,9 @@ class ClaudeCodeRuntime(AbstractRuntime):
                         agent.id,
                         error_msg,
                     )
-                    raise RuntimeError(
-                        f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+                    raise RuntimeExecutionError(
+                        f"Claude Code execution failed (agent={agent.id}): {error_msg}",
+                        partial_output=result.stdout.strip(),
                     )
 
                 output = result.stdout.strip()
@@ -455,8 +456,9 @@ class ClaudeCodeRuntime(AbstractRuntime):
                         output_parts.append(result_text)
 
         except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                f"Claude Code timed out (agent={agent.id})"
+            raise RuntimeExecutionError(
+                f"Claude Code timed out (agent={agent.id})",
+                partial_output="".join(output_parts).strip(),
             )
         finally:
             sel.close()
@@ -477,8 +479,9 @@ class ClaudeCodeRuntime(AbstractRuntime):
                 agent.id,
                 error_msg,
             )
-            raise RuntimeError(
-                f"Claude Code execution failed (agent={agent.id}): {error_msg}"
+            raise RuntimeExecutionError(
+                f"Claude Code execution failed (agent={agent.id}): {error_msg}",
+                partial_output="".join(output_parts).strip(),
             )
 
         return "".join(output_parts).strip()

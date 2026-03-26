@@ -366,6 +366,35 @@ gate:
   type: human            # Pauses pipeline → aqm approve/reject
 ```
 
+### Task Restart & Recovery
+
+Resume failed or completed tasks from any stage — no need to start over.
+
+**How it works:**
+- Before each stage, aqm snapshots all context files (context.md, agent notes, transcripts)
+- On failure, partial output from the runtime is preserved
+- `aqm restart` rolls back context to the chosen stage and re-executes from there
+
+```bash
+# Restart from the failed stage (auto-detected)
+aqm restart T-A3F2B1
+
+# Restart from a specific stage
+aqm restart T-A3F2B1 --from-stage 3
+
+# Re-run everything from scratch
+aqm restart T-A3F2B1 --from-stage 1
+```
+
+Works for `failed`, `completed`, `stalled`, and `cancelled` tasks. The web dashboard also provides a restart button with stage selection.
+
+| Event | Action |
+|-------|--------|
+| Before each stage | Context files snapshotted to `snapshots/stage_N/` |
+| Task completes successfully | All snapshots cleaned up |
+| Task fails | Snapshots preserved for restart |
+| `aqm restart --from-stage N` | Context restored from snapshot, stages truncated, pipeline resumes |
+
 ### MCP Servers
 
 Give agents real-world capabilities via [Model Context Protocol](https://modelcontextprotocol.io/).
@@ -443,6 +472,8 @@ aqm list                              # List all tasks
 aqm status T-ABC123                   # Task details
 aqm cancel T-ABC123                   # Cancel task
 aqm fix T-ABC123 "Fix the color"      # Follow-up with context
+aqm restart T-ABC123                  # Restart from failed stage
+aqm restart T-ABC123 --from-stage 2   # Restart from specific stage
 
 # Gates & Human Input
 aqm approve T-ABC123                  # Approve gate

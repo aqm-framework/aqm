@@ -48,3 +48,11 @@ class AbstractRuntime(ABC):
                      (tool_start, tool_input, tool_result, tool_error).
         """
         ...
+
+
+class RuntimeExecutionError(RuntimeError):
+    """Runtime failure that preserves partial output accumulated before the error."""
+
+    def __init__(self, message: str, partial_output: str = ""):
+        super().__init__(message)
+        self.partial_output = partial_output

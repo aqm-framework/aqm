@@ -122,6 +122,41 @@ async function submitHumanInput() {{
 }}
 </script>"""
 
+    # Restart panel (for restartable tasks)
+    restart_panel = ""
+    if task.status in (TaskStatus.failed, TaskStatus.completed, TaskStatus.stalled, TaskStatus.cancelled):
+        stage_options = "".join(
+            f'<option value="{s.stage_number}">Stage {s.stage_number} — {esc(s.agent_id)}</option>'
+            for s in task.stages
+        )
+        restart_panel = f"""\
+<div class="card" style="border-color:var(--accent);">
+  <h3>Restart Task</h3>
+  <div style="margin-top:12px;">
+    <div class="form-group">
+      <label for="restartStage">Restart from stage</label>
+      <select id="restartStage" style="width:100%;padding:6px;margin-top:4px;border:1px solid var(--border);border-radius:4px;background:var(--surface);">
+        <option value="">Default (auto-detect)</option>
+        {stage_options}
+      </select>
+    </div>
+    <button class="btn btn-green" onclick="restartTask()">Restart</button>
+  </div>
+</div>
+<script>
+async function restartTask() {{
+  const stageVal = document.getElementById('restartStage').value;
+  const body = stageVal ? {{from_stage: parseInt(stageVal)}} : {{}};
+  try {{
+    await apiFetch('/api/tasks/{esc(task.id)}/restart', {{
+      method:'POST', body:JSON.stringify(body)
+    }});
+    showToast('Task restarting...');
+    setTimeout(() => location.reload(), 800);
+  }} catch(e) {{ showToast('Restart failed', 'error'); }}
+}}
+</script>"""
+
     # Live progress panel (for in_progress, awaiting_gate, or awaiting_human_input tasks)
     live_panel = ""
     show_live = task.status in (TaskStatus.in_progress, TaskStatus.awaiting_gate, TaskStatus.awaiting_human_input)
@@ -397,7 +432,7 @@ document.getElementById('fixForm').addEventListener('submit', async (e) => {{
     return layout(
         f"Task {short_id}",
         f'<h1>Task {esc(short_id)}</h1>\n'
-        f'{meta}\n{gate_actions}\n{human_input_panel}\n{live_panel}\n'
+        f'{meta}\n{gate_actions}\n{human_input_panel}\n{restart_panel}\n{live_panel}\n'
         f'<h2 style="margin-top:24px;">Stage Timeline</h2>\n{timeline}\n'
         f'{context_section}\n{fix_section}',
         active="tasks",

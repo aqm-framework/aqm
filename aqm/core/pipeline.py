@@ -332,6 +332,7 @@ class Pipeline:
                     f"[Pipeline] {task.id} -> session '{agent.id}' "
                     f"(participants: {agent.participants})"
                 )
+                ctx_file.snapshot_before_stage(task.next_stage_number)
                 try:
                     output = self._run_session(
                         session=agent,
@@ -402,6 +403,7 @@ class Pipeline:
                 if not handoff_targets:
                     task.status = TaskStatus.completed
                     self.queue.update(task)
+                    ctx_file.cleanup_snapshots()
                     logger.info(f"[Pipeline] {task.id} completed")
                     return task
 
@@ -429,6 +431,7 @@ class Pipeline:
                 continue
 
             # ── Regular agent execution ──
+            ctx_file.snapshot_before_stage(task.next_stage_number)
             logger.info(
                 f"[Pipeline] {task.id} -> agent '{agent.id}' "
                 f"(stage {task.next_stage_number})"
@@ -499,10 +502,23 @@ class Pipeline:
                 stage.output_text = output
                 stage.finished_at = datetime.now(timezone.utc)
             except Exception as e:
-                stage.output_text = f"ERROR: {e}"
+                from aqm.runtime.base import RuntimeExecutionError
+
+                if isinstance(e, RuntimeExecutionError) and e.partial_output:
+                    stage.output_text = (
+                        f"PARTIAL OUTPUT:\n{e.partial_output}\n\nERROR: {e}"
+                    )
+                    task.metadata["_partial_output"] = e.partial_output
+                else:
+                    stage.output_text = f"ERROR: {e}"
+
                 stage.finished_at = datetime.now(timezone.utc)
                 task.add_stage(stage)
                 task.status = TaskStatus.failed
+                # Save checkpoint for restart
+                task.metadata["_checkpoint_stage"] = stage.stage_number
+                task.metadata["_checkpoint_agent_id"] = agent.id
+                task.metadata["_checkpoint_input"] = current_input
                 self.queue.update(task)
 
                 ctx_file.append_stage(
@@ -645,6 +661,7 @@ class Pipeline:
             if not handoff_targets:
                 task.status = TaskStatus.completed
                 self.queue.update(task)
+                ctx_file.cleanup_snapshots()
                 logger.info(f"[Pipeline] {task.id} completed")
                 return task
 
@@ -885,6 +902,142 @@ class Pipeline:
             on_stage_start=on_stage_start,
             on_output=on_output,
             on_thinking=on_thinking,
+            on_tool=on_tool,
+        )
+
+    # ------------------------------------------------------------------
+    # Task restart (checkpoint recovery)
+    # ------------------------------------------------------------------
+
+    def restart_task(
+        self,
+        task_id: str,
+        from_stage: int | None = None,
+        on_stage_complete=None,
+        on_stage_start=None,
+        on_output=None,
+        on_thinking=None,
+        on_human_input_request=None,
+        on_tool=None,
+    ) -> Task:
+        """Restart a failed/completed/stalled/cancelled task from a specific stage.
+
+        Args:
+            task_id: Task ID to restart.
+            from_stage: Stage number to restart from.  If *None*, failed
+                tasks restart from the failed stage; other statuses
+                restart from the last stage.
+
+        Returns:
+            The restarted Task.
+        """
+        task = self.queue.get(task_id)
+        if task is None:
+            raise ValueError(f"Task '{task_id}' not found.")
+
+        restartable = {
+            TaskStatus.failed,
+            TaskStatus.completed,
+            TaskStatus.stalled,
+            TaskStatus.cancelled,
+        }
+        if task.status not in restartable:
+            raise ValueError(
+                f"Task '{task_id}' cannot be restarted "
+                f"(current status: {task.status.value}). "
+                f"Cancel it first if it is still running."
+            )
+
+        # Determine from_stage
+        num_stages = len(task.stages)
+        if from_stage is None:
+            if task.status == TaskStatus.failed:
+                from_stage = task.metadata.get("_checkpoint_stage", num_stages)
+            else:
+                from_stage = num_stages  # re-run last stage
+        if from_stage < 1 or from_stage > num_stages + 1:
+            raise ValueError(
+                f"from_stage must be between 1 and {num_stages + 1}, "
+                f"got {from_stage}."
+            )
+
+        # Restore context snapshot
+        ctx_file = self._get_context_file(task)
+        restored = ctx_file.restore_snapshot(from_stage)
+        if not restored:
+            logger.warning(
+                "[Pipeline] No snapshot found for stage %d of %s — "
+                "context files may be stale",
+                from_stage,
+                task_id,
+            )
+
+        # Truncate stages
+        removed = task.truncate_stages(from_stage)
+        logger.info(
+            "[Pipeline] %s restarting from stage %d (removed %d stage(s))",
+            task_id,
+            from_stage,
+            len(removed),
+        )
+
+        # Determine which agent/input to use at the restart point
+        if not task.stages:
+            # Restarting from stage 1 — use first agent
+            first_agent_id = next(iter(self.agents))
+            restart_agent_id = first_agent_id
+            restart_input = task.description
+        else:
+            # Re-resolve handoff from the last remaining stage
+            last_stage = task.stages[-1]
+            last_agent = self.agents.get(last_stage.agent_id)
+            if last_agent is None:
+                raise ValueError(
+                    f"Agent '{last_stage.agent_id}' not found in pipeline."
+                )
+            gate_result = (
+                GateResult(
+                    decision=last_stage.gate_result,
+                    reason=last_stage.reject_reason or "",
+                )
+                if last_stage.gate_result
+                else None
+            )
+            handoff_targets = self._resolve_handoffs(
+                last_agent,
+                gate_result,
+                last_stage.output_text,
+                last_stage.input_text,
+            )
+            if handoff_targets:
+                restart_agent_id, restart_input = handoff_targets[0]
+            else:
+                # No handoff — re-run same agent with same input
+                restart_agent_id = last_stage.agent_id
+                restart_input = last_stage.input_text
+
+        # Clean up checkpoint metadata
+        for key in (
+            "_checkpoint_stage",
+            "_checkpoint_agent_id",
+            "_checkpoint_input",
+            "_partial_output",
+            "error",
+        ):
+            task.metadata.pop(key, None)
+
+        task.status = TaskStatus.in_progress
+        self.queue.update(task)
+
+        return self.run_task(
+            task,
+            restart_agent_id,
+            input_text=restart_input,
+            on_stage_complete=on_stage_complete,
+            on_stage_start=on_stage_start,
+            on_output=on_output,
+            on_thinking=on_thinking,
+            on_human_input_request=on_human_input_request,
             on_tool=on_tool,
         )
 

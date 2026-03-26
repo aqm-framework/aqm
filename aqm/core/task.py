@@ -83,6 +83,17 @@ class Task(BaseModel):
     def next_stage_number(self) -> int:
         return len(self.stages) + 1
 
+    def truncate_stages(self, keep_before: int) -> list[StageRecord]:
+        """Remove stages with ``stage_number >= keep_before``.
+
+        Returns the removed stages.  ``next_stage_number`` adjusts
+        automatically since it is derived from ``len(self.stages)``.
+        """
+        removed = [s for s in self.stages if s.stage_number >= keep_before]
+        self.stages = [s for s in self.stages if s.stage_number < keep_before]
+        self.touch()
+        return removed
+
     @property
     def short_id(self) -> str:
         return self.id

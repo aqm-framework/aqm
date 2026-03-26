@@ -1415,6 +1415,135 @@ def fix(task_id: str, input_text: str, agent: str | None, params: tuple[str, ...
         console.print(f"[dim]Status: {result.status.value}[/] {result.id}")
 
 
+# ── restart ─────────────────────────────────────────────────────────────
+
+
+@cli.command()
+@click.argument("task_id")
+@click.option("--from-stage", type=int, default=None, help="Stage number to restart from (default: auto-detect)")
+@click.option(
+    "--pipeline", "-P",
+    "pipeline_name",
+    default=None,
+    help="Pipeline name (default: from task metadata)",
+)
+@click.option(
+    "--param", "-p",
+    "params",
+    multiple=True,
+    help="Parameter override in key=value format (repeatable)",
+)
+def restart(task_id: str, from_stage: int | None, pipeline_name: str | None, params: tuple[str, ...]) -> None:
+    """Restart a task from a specific stage.
+
+    Restarts failed, completed, stalled, or cancelled tasks.
+    Context files are restored from the snapshot taken before
+    the target stage, ensuring a clean re-execution.
+
+    \b
+    Examples:
+        aqm restart T-A3F2B1                  # from failed stage
+        aqm restart T-A3F2B1 --from-stage 3   # from stage 3
+        aqm restart T-A3F2B1 --from-stage 1   # from the beginning
+    """
+    root = _require_project()
+
+    # Parse --param key=value pairs
+    cli_params: dict[str, str] = {}
+    for p in params:
+        if "=" not in p:
+            console.print(
+                f"[red]Error:[/] Invalid --param format: '{p}'. "
+                f"Expected key=value."
+            )
+            sys.exit(1)
+        key, value = p.split("=", 1)
+        cli_params[key.strip()] = value.strip()
+
+    queue = _get_queue(root)
+    task = queue.get(task_id)
+    if not task:
+        console.print(f"[red]Error:[/] Task '{task_id}' not found.")
+        sys.exit(1)
+
+    pipe_name = pipeline_name or task.metadata.get("pipeline")
+    try:
+        agents = load_agents(get_agents_yaml_path(root, pipe_name), cli_params=cli_params or None)
+    except (ValueError, FileNotFoundError) as e:
+        console.print(f"[red]Error:[/] {e}")
+        sys.exit(1)
+
+    from aqm.core.config import load_project_config
+    from aqm.core.pipeline import Pipeline
+
+    pipeline = Pipeline(agents, queue, root, config=load_project_config(root))
+
+    stage_label = f" from stage {from_stage}" if from_stage else ""
+    console.print(
+        f"[green]↻[/] Restarting task [bold]{task_id}[/]{stage_label}"
+    )
+
+    def _on_stage(t: Task, stage) -> None:
+        status_color = {
+            "completed": "green",
+            "approved": "green",
+            "rejected": "red",
+            "failed": "red",
+        }.get(stage.gate_result or "completed", "blue")
+        console.print(
+            f"  [{status_color}]stage {stage.stage_number}[/] "
+            f"[bold]{stage.agent_id}[/] → "
+            f"{(stage.output_text[:80] + '...') if len(stage.output_text) > 80 else stage.output_text}"
+        )
+
+    def _on_output(line: str) -> None:
+        if line.strip():
+            console.print(f"    [dim]{line}[/]")
+
+    def _on_tool(event_type: str, data: dict) -> None:
+        tool_name = data.get("tool", "")
+        if event_type == "tool_start":
+            tool_input = data.get("input", {})
+            detail = ""
+            if isinstance(tool_input, dict):
+                detail = tool_input.get("file_path", tool_input.get("command", tool_input.get("pattern", "")))
+            if isinstance(detail, str) and len(detail) > 80:
+                detail = detail[:77] + "..."
+            console.print(f"    [cyan]▶ {tool_name}[/] {detail}")
+        elif event_type == "tool_result":
+            content = str(data.get("content", ""))
+            preview = content[:100].replace("\n", " ")
+            if len(content) > 100:
+                preview += "..."
+            console.print(f"    [green]◀ {tool_name}[/] [dim]{preview}[/]")
+
+    try:
+        result = pipeline.restart_task(
+            task_id,
+            from_stage=from_stage,
+            on_stage_complete=_on_stage,
+            on_output=_on_output,
+            on_tool=_on_tool,
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
+        sys.exit(1)
+
+    console.print()
+    if result.status == TaskStatus.completed:
+        console.print(f"[green]✓ Completed[/] {result.id}")
+    elif result.status == TaskStatus.awaiting_gate:
+        console.print(
+            f"[yellow]⏸ Awaiting gate[/] {result.id}\n"
+            f"  Proceed with 'aqm approve {result.id}' or "
+            f"'aqm reject {result.id} -r \"reason\"'."
+        )
+    elif result.status == TaskStatus.failed:
+        console.print(f"[red]✗ Failed[/] {result.id}")
+    else:
+        console.print(f"[dim]Status: {result.status.value}[/] {result.id}")
+
+
 # ── pull / publish / search (registry) ──────────────────────────────────
 
 
