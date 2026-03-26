@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import jsonschema
 import pytest
 import yaml
 
@@ -427,3 +429,75 @@ class TestHumanInputCallback:
         assert args[0].id == task.id  # task
         assert args[1] == "planner"   # agent_id
         assert len(args[2]) == 1      # questions list
+
+
+# ── JSON Schema Validation ──────────────────────────────────────────
+
+
+SCHEMA_PATH = Path(__file__).resolve().parent.parent / "aqm" / "schema" / "agents-schema.json"
+
+
+@pytest.fixture
+def agents_schema():
+    with open(SCHEMA_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+class TestHumanInputSchemaValidation:
+    """Ensure human_input in agents.yaml passes JSON Schema validation."""
+
+    def test_human_input_bool_shorthand(self, agents_schema):
+        doc = {
+            "agents": [
+                {"id": "planner", "runtime": "claude", "human_input": True}
+            ]
+        }
+        jsonschema.validate(doc, agents_schema)
+
+    def test_human_input_string_shorthand(self, agents_schema):
+        doc = {
+            "agents": [
+                {"id": "planner", "runtime": "claude", "human_input": "before"}
+            ]
+        }
+        jsonschema.validate(doc, agents_schema)
+
+    def test_human_input_full_config(self, agents_schema):
+        doc = {
+            "agents": [
+                {
+                    "id": "planner",
+                    "runtime": "claude",
+                    "human_input": {
+                        "enabled": True,
+                        "mode": "before",
+                        "prompt": "What features?",
+                    },
+                }
+            ]
+        }
+        jsonschema.validate(doc, agents_schema)
+
+    def test_human_input_null(self, agents_schema):
+        doc = {
+            "agents": [
+                {"id": "planner", "runtime": "claude", "human_input": None}
+            ]
+        }
+        jsonschema.validate(doc, agents_schema)
+
+    def test_human_input_absent(self, agents_schema):
+        doc = {
+            "agents": [
+                {"id": "planner", "runtime": "claude"}
+            ]
+        }
+        jsonschema.validate(doc, agents_schema)
+
+    def test_context_window_in_schema(self, agents_schema):
+        doc = {
+            "agents": [
+                {"id": "planner", "runtime": "claude", "context_window": 5}
+            ]
+        }
+        jsonschema.validate(doc, agents_schema)
