@@ -379,3 +379,69 @@ class TestContextFileEdgeCases:
         content = cf.read_agent_context("dev")
         # agent context stores only output now
         assert "日本語の出力" in content
+
+
+# ── P6: Streaming heartbeat ─────────────────────────────────────────
+
+
+class TestStreamingHeartbeat:
+    """Test that streaming uses selectors for non-blocking reads."""
+
+    def test_heartbeat_sent_on_idle(self):
+        """When no output for HEARTBEAT_INTERVAL, empty string callback fires."""
+        import io
+        import selectors
+        from unittest.mock import patch, MagicMock
+
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(
+            id="test_agent", runtime="claude",
+        )
+
+        output_calls = []
+
+        def track_output(text):
+            output_calls.append(text)
+
+        # Mock Popen to return a process with controlled stdout
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+
+        # Simulate: selector times out once (heartbeat), then gets data, then EOF
+        mock_selector = MagicMock()
+        call_count = [0]
+
+        def mock_select(timeout=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return []  # timeout → heartbeat
+            return [(None, None)]  # data ready
+
+        mock_selector.select = mock_select
+
+        readline_calls = [0]
+        def mock_readline():
+            readline_calls[0] += 1
+            if readline_calls[0] == 1:
+                return '{"type": "result", "result": "done"}\n'
+            return ""  # EOF
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.poll.return_value = None  # Still running during heartbeat
+        mock_proc.wait.return_value = None
+
+        with patch("subprocess.Popen", return_value=mock_proc):
+            with patch("selectors.DefaultSelector", return_value=mock_selector):
+                result = rt._run_stream_json(
+                    ["claude", "--print"],
+                    agent,
+                    on_output=track_output,
+                )
+
+        # First call should be empty heartbeat
+        assert "" in output_calls
+        assert result == "done"
