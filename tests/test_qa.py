@@ -545,3 +545,52 @@ class TestStreamingHeartbeat:
         # First call should be empty heartbeat
         assert "" in output_calls
         assert result == "done"
+
+
+# ── P9: Callback error logging ──────────────────────────────────────
+
+
+class TestCallbackErrorLogging:
+    """Callback errors should be logged, not silently swallowed."""
+
+    def test_callback_error_is_logged(self, caplog):
+        import io
+        import logging
+        from unittest.mock import patch, MagicMock
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(id="test_agent", runtime="claude")
+
+        def failing_callback(text):
+            if text:
+                raise ConnectionError("SSE connection lost")
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+        readline_count = [0]
+        def mock_readline():
+            readline_count[0] += 1
+            if readline_count[0] == 1:
+                return 'not-json-line\n'
+            return ""
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.poll.return_value = None
+        mock_proc.wait.return_value = None
+
+        mock_sel = MagicMock()
+        sel_count = [0]
+        def mock_select(timeout=None):
+            sel_count[0] += 1
+            return [(None, None)]  # always data ready
+        mock_sel.select = mock_select
+
+        with caplog.at_level(logging.WARNING, logger="aqm.runtime.claude_code"):
+            with patch("subprocess.Popen", return_value=mock_proc):
+                with patch("selectors.DefaultSelector", return_value=mock_sel):
+                    rt._run_stream_json(["claude", "--print"], agent, on_output=failing_callback)
+
+        assert "callback error" in caplog.text.lower()
+        assert "SSE connection lost" in caplog.text
