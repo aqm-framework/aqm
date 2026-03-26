@@ -630,7 +630,7 @@ class TestGenerationPromptConsistency:
 
         source = inspect.getsource(generate_agents_yaml)
         # Should NOT reference old runtime values in runtime selection context
-        # (claude_code_flags is a valid field name, so only check runtime contexts)
+        # (cli_flags is a valid field name, so only check runtime contexts)
         assert "runtime (text" not in source, "Prompt still references 'text' runtime"
         assert "text|claude_code" not in source, "Prompt still references old runtime enum"
         assert "runtime: text" not in source, "Prompt uses 'text' as runtime value"

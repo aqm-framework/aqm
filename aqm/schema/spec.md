@@ -188,7 +188,7 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 | `handoffs` | array of Handoff | No | `[]` | Handoff rules for routing output to other agents. |
 | `gate` | GateConfig \| null | No | `null` | Optional gate (LLM or human review) before handoffs execute. |
 | `mcp` | array of MCPServerConfig \| string | No | `[]` | MCP servers available to this agent. Supports shorthand strings. |
-| `claude_code_flags` | array of string \| null | No | `null` | Extra CLI flags for `claude_code` runtime. |
+| `cli_flags` | array of string \| null | No | `null` | Additional CLI flags passed to the runtime CLI. |
 | `abstract` | boolean | No | `false` | If `true`, agent is a template only and is removed before execution. |
 | `extends` | string \| null | No | `null` | ID of parent agent. Child inherits parent fields via shallow merge; child fields win. |
 | `context_strategy` | `"own"` \| `"shared"` \| `"both"` | No | `"both"` | What context to inject into `{{ context }}`. Token optimization. |

@@ -88,7 +88,7 @@ class Pipeline:
         """Return a runtime instance matching the agent's runtime type.
 
         For ``claude`` runtime, auto-selects between text-only and Claude Code
-        mode: if the agent has ``mcp`` servers or ``claude_code_flags``, it
+        mode: if the agent has ``mcp`` servers or ``cli_flags``, it
         runs in full Claude Code mode (tool access); otherwise text-only.
         """
         rt = agent.runtime

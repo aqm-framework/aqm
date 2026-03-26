@@ -436,7 +436,7 @@ class TestPipelineRuntimeResolution:
             ),
             "with_flags": AgentDefinition(
                 id="with_flags", runtime="claude", system_prompt="{{ input }}",
-                claude_code_flags=["--allowedTools", "Edit,Read"],
+                cli_flags=["--allowedTools", "Edit,Read"],
             ),
         }
         queue = FileQueue(tmp_project / ".aqm" / "file-queue")
@@ -463,7 +463,7 @@ class TestPipelineRuntimeResolution:
         object.__setattr__(agent, "runtime", "nonexistent")
         object.__setattr__(agent, "id", "bad")
         object.__setattr__(agent, "mcp", [])
-        object.__setattr__(agent, "claude_code_flags", None)
+        object.__setattr__(agent, "cli_flags", None)
 
         queue = FileQueue(tmp_project / ".aqm" / "file-queue")
         pipeline = Pipeline({"bad": agent}, queue, tmp_project)

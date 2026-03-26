@@ -523,7 +523,7 @@ entry_point: auto    # LLM picks the best agent based on user input
 | `handoffs` | `list[Handoff]` | `[]` | Routing rules |
 | `gate` | `object` | `null` | Quality gate |
 | `mcp` | `list[MCPServer]` | `[]` | MCP server connections |
-| `claude_code_flags` | `list[string]` | `null` | Extra CLI flags for Claude |
+| `cli_flags` | `list[string]` | `null` | Additional CLI flags for the runtime |
 | `abstract` | `boolean` | `false` | Template-only agent (not executed) |
 | `extends` | `string` | `null` | Parent agent ID for inheritance |
 

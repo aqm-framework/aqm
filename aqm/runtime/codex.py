@@ -79,6 +79,9 @@ class CodexCLIRuntime(AbstractRuntime):
         if agent.model:
             cmd.extend(["-m", agent.model])
 
+        if agent.cli_flags:
+            cmd.extend(agent.cli_flags)
+
         # Set working directory
         cmd.extend(["-C", str(self._project_root)])
 

@@ -210,10 +210,16 @@
             ]
           }
         },
+        "cli_flags": {
+          "type": ["array", "null"],
+          "default": null,
+          "description": "Additional CLI flags passed to the runtime CLI. E.g. for Claude: [\"--allowedTools\", \"Edit,Read,Bash\"], for Codex: [\"--sandbox\", \"read-only\"].",
+          "items": { "type": "string" }
+        },
         "claude_code_flags": {
           "type": ["array", "null"],
           "default": null,
-          "description": "Additional CLI flags passed to Claude Code when runtime is \"claude_code\". E.g. [\"--allowedTools\", \"Edit,Read,Bash\"].",
+          "description": "Deprecated: use cli_flags instead. Additional CLI flags passed to the runtime CLI.",
           "items": { "type": "string" }
         },
         "context_strategy": {
