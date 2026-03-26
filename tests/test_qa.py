@@ -379,3 +379,41 @@ class TestContextFileEdgeCases:
         content = cf.read_agent_context("dev")
         # agent context stores only output now
         assert "日本語の出力" in content
+
+
+# ── P6: Timeout config propagation ──────────────────────────────────
+
+
+class TestTimeoutConfigPropagation:
+    """Regression: config timeout must reach the runtime, not be hardcoded."""
+
+    def test_custom_timeout_reaches_runtime(self, tmp_project):
+        """Pipeline should pass config timeout to ClaudeCodeRuntime."""
+        from aqm.core.config import ProjectConfig, RuntimeTimeouts
+        from aqm.core.pipeline import Pipeline
+
+        agents = {
+            "a": AgentDefinition(
+                id="a", runtime="claude", system_prompt="{{ input }}",
+            ),
+        }
+        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
+        config = ProjectConfig(timeouts=RuntimeTimeouts(claude=900))
+        pipeline = Pipeline(agents, queue, tmp_project, config=config)
+
+        rt = pipeline._get_runtime(agents["a"])
+        assert rt._timeout == 900
+
+    def test_default_timeout_is_600(self, tmp_project):
+        from aqm.core.pipeline import Pipeline
+
+        agents = {
+            "a": AgentDefinition(
+                id="a", runtime="claude", system_prompt="{{ input }}",
+            ),
+        }
+        queue = FileQueue(tmp_project / ".aqm" / "file-queue")
+        pipeline = Pipeline(agents, queue, tmp_project)
+
+        rt = pipeline._get_runtime(agents["a"])
+        assert rt._timeout == 600
