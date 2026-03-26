@@ -379,3 +379,98 @@ class TestContextFileEdgeCases:
         content = cf.read_agent_context("dev")
         # agent context stores only output now
         assert "日本語の出力" in content
+
+
+# ── P6: Callback error logging ──────────────────────────────────────
+
+
+class TestCallbackErrorLogging:
+    """Callback errors should be logged, not silently swallowed."""
+
+    def test_callback_error_is_logged(self, caplog):
+        """on_output callback errors should produce warning logs."""
+        import io
+        import logging
+        from unittest.mock import patch, MagicMock
+
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(
+            id="test_agent", runtime="claude",
+        )
+
+        def failing_callback(text):
+            if text:  # Don't fail on empty strings
+                raise ConnectionError("SSE connection lost")
+
+        # Mock Popen
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+
+        readline_count = [0]
+        def mock_readline():
+            readline_count[0] += 1
+            if readline_count[0] == 1:
+                return 'not-json-line\n'  # triggers non-JSON path
+            return ""  # EOF
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.wait.return_value = None
+
+        with caplog.at_level(logging.WARNING, logger="aqm.runtime.claude_code"):
+            with patch("subprocess.Popen", return_value=mock_proc):
+                result = rt._run_stream_json(
+                    ["claude", "--print"],
+                    agent,
+                    on_output=failing_callback,
+                )
+
+        # Verify the error was logged, not silently swallowed
+        assert "callback error" in caplog.text.lower()
+        assert "SSE connection lost" in caplog.text
+
+    def test_callback_errors_suppressed_after_max(self, caplog):
+        """After MAX_CALLBACK_ERRORS, further warnings are suppressed."""
+        import io
+        import logging
+        from unittest.mock import patch, MagicMock
+
+        from aqm.runtime.claude_code import ClaudeCodeRuntime
+
+        rt = ClaudeCodeRuntime(Path("/tmp/project"), timeout=60)
+        agent = AgentDefinition(
+            id="test_agent", runtime="claude",
+        )
+
+        def always_fail(text):
+            raise RuntimeError("always fails")
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stderr = io.StringIO("")
+
+        # Generate 15 non-JSON lines to trigger 15 callback errors
+        line_count = [0]
+        def mock_readline():
+            line_count[0] += 1
+            if line_count[0] <= 15:
+                return f'line-{line_count[0]}\n'
+            return ""
+
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.readline = mock_readline
+        mock_proc.wait.return_value = None
+
+        with caplog.at_level(logging.WARNING, logger="aqm.runtime.claude_code"):
+            with patch("subprocess.Popen", return_value=mock_proc):
+                rt._run_stream_json(
+                    ["claude", "--print"],
+                    agent,
+                    on_output=always_fail,
+                )
+
+        # Should see "Too many callback errors" message
+        assert "too many callback errors" in caplog.text.lower()

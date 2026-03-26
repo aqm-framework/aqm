@@ -265,6 +265,8 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         output_parts: list[str] = []
         got_stream_events = False  # Track if we received deltas
+        callback_errors = 0
+        _MAX_CALLBACK_ERRORS = 10
         try:
             while True:
                 line = proc.stdout.readline()
@@ -279,8 +281,19 @@ class ClaudeCodeRuntime(AbstractRuntime):
                     output_parts.append(line)
                     try:
                         on_output(line)
-                    except Exception:
-                        pass
+                    except Exception as cb_err:
+                        callback_errors += 1
+                        if callback_errors <= _MAX_CALLBACK_ERRORS:
+                            logger.warning(
+                                "[ClaudeCodeRuntime] on_output callback error "
+                                "(agent=%s): %s", agent.id, cb_err,
+                            )
+                        elif callback_errors == _MAX_CALLBACK_ERRORS + 1:
+                            logger.error(
+                                "[ClaudeCodeRuntime] Too many callback errors "
+                                "(agent=%s), suppressing further warnings",
+                                agent.id,
+                            )
                     continue
 
                 etype = event.get("type", "")
@@ -298,16 +311,38 @@ class ClaudeCodeRuntime(AbstractRuntime):
                             if thinking_text and on_thinking:
                                 try:
                                     on_thinking(thinking_text)
-                                except Exception:
-                                    pass
+                                except Exception as cb_err:
+                                    callback_errors += 1
+                                    if callback_errors <= _MAX_CALLBACK_ERRORS:
+                                        logger.warning(
+                                            "[ClaudeCodeRuntime] on_thinking callback error "
+                                            "(agent=%s): %s", agent.id, cb_err,
+                                        )
+                                    elif callback_errors == _MAX_CALLBACK_ERRORS + 1:
+                                        logger.error(
+                                            "[ClaudeCodeRuntime] Too many callback errors "
+                                            "(agent=%s), suppressing further warnings",
+                                            agent.id,
+                                        )
                         elif delta_type == "text_delta":
                             text = delta.get("text", "")
                             if text:
                                 output_parts.append(text)
                                 try:
                                     on_output(text)
-                                except Exception:
-                                    pass
+                                except Exception as cb_err:
+                                    callback_errors += 1
+                                    if callback_errors <= _MAX_CALLBACK_ERRORS:
+                                        logger.warning(
+                                            "[ClaudeCodeRuntime] on_output callback error "
+                                            "(agent=%s): %s", agent.id, cb_err,
+                                        )
+                                    elif callback_errors == _MAX_CALLBACK_ERRORS + 1:
+                                        logger.error(
+                                            "[ClaudeCodeRuntime] Too many callback errors "
+                                            "(agent=%s), suppressing further warnings",
+                                            agent.id,
+                                        )
 
                 # Full message fallback — only used when NO stream_events
                 # were received (i.e. --include-partial-messages not active)
@@ -320,16 +355,38 @@ class ClaudeCodeRuntime(AbstractRuntime):
                             if thinking_text and on_thinking:
                                 try:
                                     on_thinking(thinking_text)
-                                except Exception:
-                                    pass
+                                except Exception as cb_err:
+                                    callback_errors += 1
+                                    if callback_errors <= _MAX_CALLBACK_ERRORS:
+                                        logger.warning(
+                                            "[ClaudeCodeRuntime] on_thinking callback error "
+                                            "(agent=%s): %s", agent.id, cb_err,
+                                        )
+                                    elif callback_errors == _MAX_CALLBACK_ERRORS + 1:
+                                        logger.error(
+                                            "[ClaudeCodeRuntime] Too many callback errors "
+                                            "(agent=%s), suppressing further warnings",
+                                            agent.id,
+                                        )
                         elif btype == "text":
                             text = block.get("text", "")
                             if text:
                                 output_parts.append(text)
                                 try:
                                     on_output(text)
-                                except Exception:
-                                    pass
+                                except Exception as cb_err:
+                                    callback_errors += 1
+                                    if callback_errors <= _MAX_CALLBACK_ERRORS:
+                                        logger.warning(
+                                            "[ClaudeCodeRuntime] on_output callback error "
+                                            "(agent=%s): %s", agent.id, cb_err,
+                                        )
+                                    elif callback_errors == _MAX_CALLBACK_ERRORS + 1:
+                                        logger.error(
+                                            "[ClaudeCodeRuntime] Too many callback errors "
+                                            "(agent=%s), suppressing further warnings",
+                                            agent.id,
+                                        )
 
                 elif etype == "result":
                     result_text = event.get("result", "")
