@@ -523,7 +523,7 @@ entry_point: auto    # LLM이 사용자 입력에 따라 최적 에이전트 선
 | `handoffs` | `list[Handoff]` | `[]` | 라우팅 규칙 |
 | `gate` | `object` | `null` | 품질 게이트 |
 | `mcp` | `list[MCPServer]` | `[]` | MCP 서버 연결 |
-| `claude_code_flags` | `list[string]` | `null` | Claude 추가 CLI 플래그 |
+| `cli_flags` | `list[string]` | `null` | 런타임 추가 CLI 플래그 |
 | `abstract` | `boolean` | `false` | 템플릿 전용 에이전트 (실행되지 않음) |
 | `extends` | `string` | `null` | 부모 에이전트 ID (상속) |
 

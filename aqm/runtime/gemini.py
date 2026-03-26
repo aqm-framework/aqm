@@ -97,6 +97,9 @@ class GeminiCLIRuntime(AbstractRuntime):
         if agent.model:
             cmd.extend(["-m", agent.model])
 
+        if agent.cli_flags:
+            cmd.extend(agent.cli_flags)
+
         # Gemini CLI uses GEMINI_SYSTEM_MD env var for system prompts,
         # not a --system-prompt flag. Write to a temp .md file.
         system_prompt_path: Path | None = None

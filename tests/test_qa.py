@@ -435,7 +435,7 @@ class TestClaudeCodeRuntimeCmdBuild:
         agent = AgentDefinition(
             id="test_agent",
             runtime="claude",
-            claude_code_flags=["--allowedTools", "Edit,Read"],
+            cli_flags=["--allowedTools", "Edit,Read"],
         )
         task = Task(description="test")
 
@@ -463,7 +463,7 @@ class TestClaudeCodeRuntimeCmdBuild:
         agent = AgentDefinition(
             id="test_agent",
             runtime="claude",
-            claude_code_flags=["--dangerously-skip-permissions"],
+            cli_flags=["--dangerously-skip-permissions"],
         )
         task = Task(description="test")
 

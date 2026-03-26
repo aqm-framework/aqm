@@ -436,7 +436,7 @@ class TestPipelineRuntimeResolution:
             ),
             "with_flags": AgentDefinition(
                 id="with_flags", runtime="claude", system_prompt="{{ input }}",
-                claude_code_flags=["--allowedTools", "Edit,Read"],
+                cli_flags=["--allowedTools", "Edit,Read"],
             ),
         }
         queue = FileQueue(tmp_project / ".aqm" / "file-queue")
@@ -463,7 +463,7 @@ class TestPipelineRuntimeResolution:
         object.__setattr__(agent, "runtime", "nonexistent")
         object.__setattr__(agent, "id", "bad")
         object.__setattr__(agent, "mcp", [])
-        object.__setattr__(agent, "claude_code_flags", None)
+        object.__setattr__(agent, "cli_flags", None)
 
         queue = FileQueue(tmp_project / ".aqm" / "file-queue")
         pipeline = Pipeline({"bad": agent}, queue, tmp_project)
@@ -599,3 +599,103 @@ class TestRuntimeInit:
     def test_codex_init_without_project_root_uses_cwd(self):
         runtime = CodexCLIRuntime()
         assert runtime._project_root == Path.cwd()
+
+
+# ── Backward compatibility: claude_code_flags → cli_flags ─────────────
+
+
+class TestClaudeCodeFlagsBackwardCompat:
+    """Test deprecated claude_code_flags is migrated to cli_flags."""
+
+    def test_claude_code_flags_migrated_to_cli_flags(self):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            agent = AgentDefinition(
+                id="x",
+                runtime="claude",
+                claude_code_flags=["--allowedTools", "Edit,Read"],
+            )
+
+        assert agent.cli_flags == ["--allowedTools", "Edit,Read"]
+
+    def test_claude_code_flags_emits_deprecation_warning(self):
+        with pytest.warns(DeprecationWarning, match="claude_code_flags.*deprecated"):
+            AgentDefinition(
+                id="x",
+                runtime="claude",
+                claude_code_flags=["--allowedTools", "Edit,Read"],
+            )
+
+    def test_cli_flags_takes_precedence_over_claude_code_flags(self):
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            agent = AgentDefinition(
+                id="x",
+                runtime="claude",
+                claude_code_flags=["--old-flag"],
+                cli_flags=["--new-flag"],
+            )
+
+        assert agent.cli_flags == ["--new-flag"]
+
+
+# ── Gemini cli_flags in command build ─────────────────────────────────
+
+
+class TestGeminiCLIFlagsInCmd:
+    """Test that cli_flags appear in the Gemini CLI command."""
+
+    @patch("aqm.runtime.gemini.shutil.which", return_value="/usr/local/bin/gemini")
+    @patch("subprocess.run")
+    def test_cli_flags_in_gemini_cmd(self, mock_run, mock_which):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Gemini response", stderr="",
+        )
+
+        runtime = GeminiCLIRuntime()
+        agent = AgentDefinition(
+            id="test_agent",
+            runtime="gemini",
+            system_prompt="",
+            cli_flags=["--sandbox", "strict"],
+        )
+        task = Task(description="test")
+
+        runtime.run("test prompt", agent, task)
+
+        cmd = mock_run.call_args[0][0]
+        assert "--sandbox" in cmd
+        assert "strict" in cmd
+
+
+# ── Codex cli_flags in command build ──────────────────────────────────
+
+
+class TestCodexCLIFlagsInCmd:
+    """Test that cli_flags appear in the Codex CLI command."""
+
+    @patch("aqm.runtime.codex.shutil.which", return_value="/usr/local/bin/codex")
+    @patch("subprocess.run")
+    def test_cli_flags_in_codex_cmd(self, mock_run, mock_which):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="Codex response", stderr="",
+        )
+
+        runtime = CodexCLIRuntime()
+        agent = AgentDefinition(
+            id="test_agent",
+            runtime="codex",
+            system_prompt="",
+            cli_flags=["--sandbox", "read-only"],
+        )
+        task = Task(description="test")
+
+        runtime.run("write code", agent, task)
+
+        cmd = mock_run.call_args[0][0]
+        assert "--sandbox" in cmd
+        assert "read-only" in cmd

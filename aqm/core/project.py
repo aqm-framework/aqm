@@ -53,7 +53,7 @@ agents:
       Execute the task based on the plan.
 
       Plan: {{ input }}
-    claude_code_flags:
+    cli_flags:
       - "--allowedTools"
       - "Edit,Write,Bash,Read"
 """
@@ -532,7 +532,7 @@ RULES:
     - Use runtime: claude
     - Have MCP filesystem server attached
     - Have a system_prompt that instructs it to implement the plan by editing actual files
-    - Use claude_code_flags to restrict tools if needed (e.g. ["--allowedTools", "Edit,Write,Bash,Read"])
+    - Use cli_flags to restrict tools if needed (e.g. ["--allowedTools", "Edit,Write,Bash,Read"])
     A pipeline that only produces documents without a code execution agent is INCOMPLETE.
     Do NOT use {{{{ params.X }}}} or {{{{ agents.X.output }}}} in payload — these are not supported. Only the four variables above are available.
 
