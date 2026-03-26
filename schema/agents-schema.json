@@ -321,6 +321,12 @@
           "type": ["string", "null"],
           "default": null,
           "description": "Model to use for LLM gate evaluation. If null, uses the default model. E.g. \"claude-sonnet-4-20250514\"."
+        },
+        "max_retries": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 1,
+          "description": "Maximum number of times an agent can be retried after gate rejection before the pipeline fails. Prevents infinite reject loops."
         }
       }
     },
