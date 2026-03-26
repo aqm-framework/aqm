@@ -21,10 +21,10 @@ This document defines the **agents.yaml** configuration format used by aqm (aqm)
 |----------|-------|
 | **Field** | `apiVersion` |
 | **Type** | string |
-| **Required** | Yes |
+| **Required** | No (recommended) |
 | **Value** | `"aqm/v0.1"` |
 
-The `apiVersion` field is required at the top level of every agents.yaml file. It identifies which version of this specification the file conforms to.
+The `apiVersion` field is optional but recommended at the top level of agents.yaml. It identifies which version of this specification the file conforms to. When present, it must be `"aqm/v0.1"`.
 
 **Versioning strategy:** The spec follows semver. The version in `apiVersion` tracks the spec version, not the runtime version.
 

@@ -558,24 +558,29 @@ timeouts:                     # Runtime subprocess timeouts (seconds)
 ```
 aqm/
 ├── core/
-│   ├── agent.py          # AgentDefinition, ConsensusConfig, ChunksConfig
+│   ├── agent.py          # AgentDefinition, ConsensusConfig, ChunksConfig, HumanInputConfig
 │   ├── pipeline.py       # Pipeline loop + _run_session() + context strategy
 │   ├── chunks.py         # Chunk model, ChunkManager, directive parser
 │   ├── task.py           # Task, StageRecord, TaskStatus
 │   ├── gate.py           # LLMGate / HumanGate
-│   ├── context_file.py   # context.md + agent_{id}.md + transcript.md
+│   ├── context_file.py   # context.md + agent_{id}.md + transcript.md + smart windowing
 │   ├── context.py        # Jinja2 prompt builder
+│   ├── config.py         # ProjectConfig (.aqm/config.yaml)
 │   └── project.py        # Project root detection
 ├── queue/
+│   ├── base.py           # AbstractQueue interface
 │   ├── sqlite.py         # SQLiteQueue (production)
 │   └── file.py           # FileQueue (testing)
 ├── runtime/
+│   ├── base.py           # AbstractRuntime interface
 │   ├── claude_code.py    # Claude Code (with MCP, token streaming)
 │   ├── gemini.py         # Gemini CLI
 │   └── codex.py          # Codex CLI
 ├── web/
-│   ├── app.py            # FastAPI + SSE
-│   └── api/              # REST + chunk + SSE endpoints
+│   ├── app.py            # FastAPI app factory
+│   ├── templates.py      # Shared CSS/layout/helpers
+│   ├── pages/            # Page renderers (dashboard, agents, registry, validate, task_detail)
+│   └── api/              # REST + chunk + SSE + human input endpoints
 ├── registry.py           # GitHub pipeline registry
 └── cli.py                # Click CLI
 ```
@@ -595,6 +600,7 @@ aqm/
 | Auto entry routing | ❌ | ❌ | ❌ | **LLM-based `entry_point: auto`** |
 | Fan-out parallel | Manual | ❌ | ❌ | **Declarative** |
 | File-based context | ❌ | ❌ | ❌ | **context.md + agent files** |
+| Real-time streaming | ❌ | ❌ | ❌ | **Token-level SSE streaming** |
 | Web dashboard | ❌ | Paid | ❌ | **Built-in** |
 
 ## Community

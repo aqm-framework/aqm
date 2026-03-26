@@ -568,16 +568,21 @@ aqm/
 │   ├── gate.py           # LLMGate / HumanGate
 │   ├── context_file.py   # context.md + agent_{id}.md + transcript.md + 스마트 윈도잉
 │   ├── context.py        # Jinja2 프롬프트 빌더
+│   ├── config.py         # ProjectConfig (.aqm/config.yaml)
 │   └── project.py        # 프로젝트 루트 감지
 ├── queue/
+│   ├── base.py           # AbstractQueue 인터페이스
 │   ├── sqlite.py         # SQLiteQueue (프로덕션)
 │   └── file.py           # FileQueue (테스트용)
 ├── runtime/
+│   ├── base.py           # AbstractRuntime 인터페이스
 │   ├── claude_code.py    # Claude Code (MCP 포함, 토큰 스트리밍)
 │   ├── gemini.py         # Gemini CLI
 │   └── codex.py          # Codex CLI
 ├── web/
-│   ├── app.py            # FastAPI + SSE
+│   ├── app.py            # FastAPI 앱 팩토리
+│   ├── templates.py      # 공유 CSS/레이아웃/헬퍼
+│   ├── pages/            # 페이지 렌더러 (dashboard, agents, registry, validate, task_detail)
 │   └── api/              # REST + 청크 + SSE + 사람 입력 엔드포인트
 ├── registry.py           # GitHub 파이프라인 레지스트리
 └── cli.py                # Click CLI
