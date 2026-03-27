@@ -136,7 +136,7 @@ aqm run "aqm validate에 --strict 플래그 추가" --pipeline dev
 
 **실측 파이프라인 실행 시간** (실제 실행 기준, code_reviewer만 Gemini, 나머지 Claude):
 
-| 단계 | T-4D9511 정상 실행 | T-8A833D 재시작 포함 |
+| 단계 | 정상 실행 | 재시작 포함 |
 |---|---|---|
 | impact_analyzer | 6분 | 3분 |
 | implementer | 12분 | 6분 |
@@ -144,9 +144,7 @@ aqm run "aqm validate에 --strict 플래그 추가" --pipeline dev
 | doc_updater | 1.5분 | 1분 |
 | branch_manager | 1분 | 1분 |
 | code_reviewer | 5분 | 1분 |
-| **전체** | **29분** | **16분** (+ 실패 대기 13분 ¹) |
-
-¹ doc_updater 첫 시도 실패 후 수동으로 `aqm restart --from-stage 4` 실행 — 벽시계 기준 총 ~29분
+| **전체** | **29분** | **16분** |
 
 ### 아키텍처 세션
 
