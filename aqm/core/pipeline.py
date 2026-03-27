@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -496,43 +497,115 @@ class Pipeline:
             if on_stage_start:
                 on_stage_start(task, agent.id, task.next_stage_number)
 
-            try:
-                runtime = self._get_runtime(agent)
-                output = runtime.run(prompt, agent, task, on_output=on_output, on_thinking=on_thinking, on_tool=on_tool)
-                stage.output_text = output
-                stage.finished_at = datetime.now(timezone.utc)
-            except Exception as e:
-                from aqm.runtime.base import RuntimeExecutionError
+            # --- Retry-aware execution block ---
+            from aqm.runtime.base import RuntimeExecutionError
 
-                if isinstance(e, RuntimeExecutionError) and e.partial_output:
-                    stage.output_text = (
-                        f"PARTIAL OUTPUT:\n{e.partial_output}\n\nERROR: {e}"
+            retry_cfg = agent.retry
+            max_attempts = 1 + (retry_cfg.max_retries if retry_cfg else 0)
+            last_error: Exception | None = None
+
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    # On retry with fallback context strategy, rebuild prompt
+                    if attempt > 1 and retry_cfg and retry_cfg.fallback_context_strategy:
+                        context_text = ctx_file.read_for_strategy(
+                            agent.id,
+                            retry_cfg.fallback_context_strategy,
+                            agent.context_window,
+                        )
+                        prompt = build_prompt(
+                            system_prompt_template=agent.system_prompt,
+                            input_text=current_input,
+                            context=context_text,
+                        )
+                        logger.info(
+                            "[Pipeline] Retrying agent %s (attempt %d/%d, "
+                            "fallback context: %s)",
+                            agent.id, attempt, max_attempts,
+                            retry_cfg.fallback_context_strategy,
+                        )
+                    elif attempt > 1:
+                        logger.info(
+                            "[Pipeline] Retrying agent %s (attempt %d/%d)",
+                            agent.id, attempt, max_attempts,
+                        )
+
+                    runtime = self._get_runtime(agent)
+                    output = runtime.run(prompt, agent, task, on_output=on_output, on_thinking=on_thinking, on_tool=on_tool)
+                    stage.output_text = output
+                    stage.finished_at = datetime.now(timezone.utc)
+                    if attempt > 1:
+                        stage.retry_count = attempt - 1
+                        stage.retry_reason = str(last_error) if last_error else None
+                    last_error = None
+                    break  # success
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_attempts:
+                        # Log and backoff before next attempt
+                        error_cat = ""
+                        if isinstance(e, RuntimeExecutionError):
+                            error_cat = f" [{e.error_category}]"
+                        logger.warning(
+                            "[Pipeline] %s agent '%s' attempt %d/%d failed%s: %s",
+                            task.id, agent.id, attempt, max_attempts,
+                            error_cat, e,
+                        )
+                        if retry_cfg and retry_cfg.backoff > 0:
+                            _time.sleep(retry_cfg.backoff)
+                        continue
+
+                    # All attempts exhausted — record failure
+                    if isinstance(e, RuntimeExecutionError):
+                        error_cat = e.error_category
+                        error_detail = str(e) or (
+                            f"{agent.runtime or 'runtime'} execution failed "
+                            f"(agent={agent.id}, category={error_cat})"
+                        )
+                        if e.partial_output:
+                            stage.output_text = (
+                                f"PARTIAL OUTPUT:\n{e.partial_output}\n\n"
+                                f"ERROR: {error_detail} [category={error_cat}]"
+                            )
+                            task.metadata["_partial_output"] = e.partial_output
+                        else:
+                            stage.output_text = (
+                                f"ERROR: {error_detail} [category={error_cat}]"
+                            )
+                    else:
+                        error_detail = str(e) or repr(e)
+                        stage.output_text = f"ERROR: {error_detail}"
+
+                    stage.retry_count = attempt - 1
+                    stage.retry_reason = str(e) if attempt > 1 else None
+                    stage.finished_at = datetime.now(timezone.utc)
+                    task.add_stage(stage)
+                    task.status = TaskStatus.failed
+                    # Save checkpoint for restart
+                    task.metadata["_checkpoint_stage"] = stage.stage_number
+                    task.metadata["_checkpoint_agent_id"] = agent.id
+                    task.metadata["_checkpoint_input"] = current_input
+                    self.queue.update(task)
+
+                    ctx_file.append_stage(
+                        stage_number=stage.stage_number,
+                        agent_id=agent.id,
+                        task_name=stage.task_name,
+                        status="failed",
+                        input_text=current_input,
+                        output_text=stage.output_text,
                     )
-                    task.metadata["_partial_output"] = e.partial_output
-                else:
-                    stage.output_text = f"ERROR: {e}"
+                    logger.error(
+                        "[Pipeline] %s agent '%s' execution failed "
+                        "(after %d attempt(s)): %s",
+                        task.id, agent.id, attempt, e,
+                    )
+                    return task
 
-                stage.finished_at = datetime.now(timezone.utc)
-                task.add_stage(stage)
-                task.status = TaskStatus.failed
-                # Save checkpoint for restart
-                task.metadata["_checkpoint_stage"] = stage.stage_number
-                task.metadata["_checkpoint_agent_id"] = agent.id
-                task.metadata["_checkpoint_input"] = current_input
-                self.queue.update(task)
-
-                ctx_file.append_stage(
-                    stage_number=stage.stage_number,
-                    agent_id=agent.id,
-                    task_name=stage.task_name,
-                    status="failed",
-                    input_text=current_input,
-                    output_text=stage.output_text,
-                )
-                logger.error(
-                    f"[Pipeline] {task.id} agent '{agent.id}' execution failed: {e}"
-                )
-                return task
+            # If we broke out of the loop with last_error still set, shouldn't
+            # happen, but guard defensively.
+            if last_error is not None:
+                raise last_error  # pragma: no cover
 
             # ── Human input: "on_demand" mode ──
             if hi_cfg and hi_cfg.enabled and hi_cfg.mode in ("on_demand", "both"):

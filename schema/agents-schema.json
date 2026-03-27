@@ -285,6 +285,14 @@
           "default": null,
           "description": "Human-in-the-loop input configuration. Allows agents to request input from humans during pipeline execution. Supports shorthand (true or mode string) or full HumanInputConfig object."
         },
+        "retry": {
+          "oneOf": [
+            { "$ref": "#/definitions/RetryConfig" },
+            { "type": "null" }
+          ],
+          "default": null,
+          "description": "Runtime error retry strategy. Separate from gate.max_retries (quality rejection retries). When set, the agent is retried on runtime failures (timeout, CLI missing, context overflow, etc.) up to max_retries times with optional backoff and fallback context strategy."
+        },
         "chunks": {
           "oneOf": [
             { "$ref": "#/definitions/ChunksConfig" },
@@ -349,6 +357,31 @@
           "default": 3,
           "minimum": 1,
           "description": "Maximum number of times an agent can be retried after gate rejection before the pipeline fails. Prevents infinite reject loops."
+        }
+      }
+    },
+    "RetryConfig": {
+      "type": "object",
+      "description": "Retry strategy for runtime execution failures (timeout, CLI missing, context overflow). Separate from gate.max_retries which handles quality-rejection retries.",
+      "additionalProperties": false,
+      "properties": {
+        "max_retries": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum number of retry attempts on runtime error. 0 means no retry (default, preserves current behaviour)."
+        },
+        "fallback_context_strategy": {
+          "type": ["string", "null"],
+          "enum": ["none", "last_only", "own", "shared", "both", null],
+          "default": null,
+          "description": "Context strategy to use on retry attempts instead of the agent's normal context_strategy. Useful to reduce context size after a context_overflow error. If null, the original context_strategy is kept."
+        },
+        "backoff": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Wait time in seconds between retry attempts. 0 means retry immediately."
         }
       }
     },

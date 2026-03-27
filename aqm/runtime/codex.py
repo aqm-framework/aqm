@@ -29,6 +29,18 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CODEX_MODEL = "o4-mini"
 
 
+def _classify_error(stderr: str, returncode: int) -> str:
+    """Classify a CLI error into a coarse category."""
+    lower = stderr.lower() if stderr else ""
+    if "context window" in lower or "token limit" in lower or "too long" in lower:
+        return "context_overflow"
+    if returncode == 127 or "not found" in lower or "no such file" in lower:
+        return "cli_missing"
+    if "timed out" in lower or "timeout" in lower:
+        return "timeout"
+    return "unknown"
+
+
 def _check_codex_cli_available() -> None:
     """Verify that the ``codex`` CLI binary is on PATH."""
     if shutil.which("codex") is None:
@@ -102,15 +114,21 @@ class CodexCLIRuntime(AbstractRuntime):
         )
 
         if result.returncode != 0:
+            stderr = result.stderr.strip()
+            error_category = _classify_error(stderr, result.returncode)
             error_msg = (
-                result.stderr.strip() or f"Exit code: {result.returncode}"
+                stderr or f"process exited with code {result.returncode}"
             )
             logger.error(
-                "[CodexCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
+                "[CodexCLIRuntime] Agent '%s' failed (%s): %s",
+                agent.id,
+                error_category,
+                error_msg,
             )
             raise RuntimeExecutionError(
                 f"Codex CLI execution failed (agent={agent.id}): {error_msg}",
                 partial_output=result.stdout.strip(),
+                error_category=error_category,
             )
 
         output = result.stdout.strip()
@@ -161,6 +179,7 @@ class CodexCLIRuntime(AbstractRuntime):
                 raise RuntimeExecutionError(
                     f"Codex CLI timed out (agent={agent.id})",
                     partial_output="".join(output_parts).strip(),
+                    error_category="timeout",
                 )
             finally:
                 if proc.poll() is None:
@@ -235,6 +254,7 @@ class CodexCLIRuntime(AbstractRuntime):
                 raise RuntimeExecutionError(
                     f"Codex CLI timed out (agent={agent.id})",
                     partial_output="".join(output_parts).strip(),
+                    error_category="timeout",
                 )
             finally:
                 sel.close()
@@ -244,18 +264,24 @@ class CodexCLIRuntime(AbstractRuntime):
 
         if proc.returncode != 0:
             try:
-                error_msg = (
+                stderr = (
                     proc.stderr.read().strip() if proc.stderr  # type: ignore[union-attr]
-                    else f"Exit code: {proc.returncode}"
+                    else ""
                 )
             except (ValueError, OSError):
-                error_msg = f"Exit code: {proc.returncode}"
+                stderr = ""
+            error_category = _classify_error(stderr, proc.returncode)
+            error_msg = stderr or f"process exited with code {proc.returncode}"
             logger.error(
-                "[CodexCLIRuntime] Agent '%s' failed: %s", agent.id, error_msg
+                "[CodexCLIRuntime] Agent '%s' failed (%s): %s",
+                agent.id,
+                error_category,
+                error_msg,
             )
             raise RuntimeExecutionError(
                 f"Codex CLI execution failed (agent={agent.id}): {error_msg}",
                 partial_output="".join(output_parts).strip(),
+                error_category=error_category,
             )
 
         output = "".join(output_parts).strip()

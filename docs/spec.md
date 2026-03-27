@@ -192,6 +192,7 @@ The `agents` section is a list of `AgentDefinition` objects. At least one agent 
 | `context_strategy` | `"none"` \| `"last_only"` \| `"own"` \| `"shared"` \| `"both"` | No | `"both"` | What context to inject into `{{ context }}`. Token optimization. |
 | `context_window` | integer | No | `3` | Number of recent stages to include in full (0 = all). |
 | `human_input` | HumanInputConfig \| boolean \| string \| null | No | `null` | Human-in-the-loop input configuration. |
+| `retry` | RetryConfig \| null | No | `null` | Runtime error retry strategy. Separate from `gate.max_retries` (quality rejection). |
 
 ```yaml
 agents:
@@ -295,6 +296,27 @@ Configuration for human-in-the-loop interaction.
 **Shorthand formats:**
 - `human_input: true` — equivalent to `{ enabled: true, mode: "on_demand" }`
 - `human_input: "before"` — equivalent to `{ enabled: true, mode: "before" }`
+
+---
+
+### retry
+
+Retry strategy for runtime execution failures (timeout, CLI missing, context overflow). This is separate from `gate.max_retries` which handles quality-rejection retries.
+
+#### RetryConfig
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `max_retries` | integer | No | `0` | Maximum retry attempts on runtime error. 0 = no retry (default). |
+| `fallback_context_strategy` | `"none"` \| `"last_only"` \| `"own"` \| `"shared"` \| `"both"` \| null | No | `null` | Context strategy override on retry. Useful to reduce context after a context_overflow error. If null, the agent's normal `context_strategy` is kept. |
+| `backoff` | integer | No | `0` | Wait time in seconds between retry attempts. 0 = retry immediately. |
+
+```yaml
+retry:
+  max_retries: 2
+  backoff: 5
+  fallback_context_strategy: last_only
+```
 
 ---
 

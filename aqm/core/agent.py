@@ -116,6 +116,21 @@ class ChunksConfig(BaseModel):
     initial: list[str] = Field(default_factory=list)
 
 
+class RetryConfig(BaseModel):
+    """Retry strategy for runtime execution failures.
+
+    This is separate from ``gate.max_retries`` which handles quality-rejection
+    retries.  ``RetryConfig`` handles *runtime* errors (timeout, CLI missing,
+    context overflow, etc.).
+    """
+
+    max_retries: int = 0  # 0 = no retry (current default behaviour)
+    fallback_context_strategy: Optional[
+        Literal["none", "last_only", "own", "shared", "both"]
+    ] = None
+    backoff: int = 0  # seconds between retries
+
+
 class HumanInputConfig(BaseModel):
     """Configuration for human-in-the-loop interaction.
 
@@ -155,6 +170,7 @@ class AgentDefinition(BaseModel):
     context_strategy: Literal["none", "last_only", "own", "shared", "both"] = "both"
     context_window: int = 3  # Number of recent stages to include in full (0 = all)
     human_input: Optional[HumanInputConfig] = None
+    retry: Optional[RetryConfig] = None
     abstract: bool = False
     extends: Optional[str] = None
 

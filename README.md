@@ -412,6 +412,25 @@ agents:
 | `on_demand` | Agent requests input via `HUMAN_INPUT: <question>` directives in output. |
 | `both` | Combines both modes. |
 
+### Runtime Retry
+
+Automatically retry agents on runtime failures (timeout, CLI missing, context overflow). This is separate from `gate.max_retries`, which handles quality-rejection retries.
+
+```yaml
+agents:
+  - id: researcher
+    retry:
+      max_retries: 2              # Retry up to 2 times on runtime error
+      backoff: 5                  # Wait 5 seconds between retries
+      fallback_context_strategy: last_only  # Reduce context on retry
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `max_retries` | `int` | `0` | Max retry attempts on runtime error (0 = no retry) |
+| `fallback_context_strategy` | `string` \| `null` | `null` | Context strategy override on retry (reduces token usage after context overflow) |
+| `backoff` | `int` | `0` | Seconds between retry attempts |
+
 ### Gates (Quality Control)
 
 ```yaml
@@ -589,6 +608,7 @@ entry_point: auto    # LLM picks the best agent based on user input
 | `context_strategy` | `"none"` \| `"last_only"` \| `"own"` \| `"shared"` \| `"both"` | `"both"` | What context to inject (token optimization) |
 | `context_window` | `int` | `3` | Recent stages in full; older stages summarized (0 = all) |
 | `human_input` | `boolean` \| `object` | `null` | Human-in-the-loop input (`before`, `on_demand`, `both`) |
+| `retry` | `object` \| `null` | `null` | Runtime error retry strategy — see **Retry** format below |
 | `handoffs` | list | `[]` | Routing rules — see **Handoff** format below |
 | `gate` | `object` | `null` | Quality gate — see **Gate** format below |
 | `mcp` | list | `[]` | MCP server connections — see **MCP** format below |

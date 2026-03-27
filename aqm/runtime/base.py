@@ -51,8 +51,21 @@ class AbstractRuntime(ABC):
 
 
 class RuntimeExecutionError(RuntimeError):
-    """Runtime failure that preserves partial output accumulated before the error."""
+    """Runtime failure that preserves partial output accumulated before the error.
 
-    def __init__(self, message: str, partial_output: str = ""):
+    Attributes:
+        partial_output: Any text produced before the failure.
+        error_category: A coarse classification of the failure cause.
+            One of ``"timeout"``, ``"cli_missing"``, ``"context_overflow"``,
+            or ``"unknown"`` (default).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        partial_output: str = "",
+        error_category: str = "unknown",
+    ):
         super().__init__(message)
         self.partial_output = partial_output
+        self.error_category = error_category

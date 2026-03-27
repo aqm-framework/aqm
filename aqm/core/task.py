@@ -40,6 +40,8 @@ class StageRecord(BaseModel):
     output_text: str = ""
     gate_result: Optional[Literal["approved", "rejected"]] = None
     reject_reason: Optional[str] = None
+    retry_count: int = 0
+    retry_reason: Optional[str] = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
 

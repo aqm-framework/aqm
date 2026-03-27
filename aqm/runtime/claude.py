@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 _TEMP_FILES_TO_CLEANUP: list[Path] = []
 
 
+def _classify_error(stderr: str, returncode: int) -> str:
+    """Classify a CLI error into a coarse category."""
+    lower = stderr.lower() if stderr else ""
+    if "context window" in lower or "token limit" in lower or "too long" in lower:
+        return "context_overflow"
+    if returncode == 127 or "not found" in lower or "no such file" in lower:
+        return "cli_missing"
+    if "timed out" in lower or "timeout" in lower:
+        return "timeout"
+    return "unknown"
+
+
 def _cleanup_temp_files() -> None:
     """Remove any leftover temp files at interpreter shutdown."""
     for p in _TEMP_FILES_TO_CLEANUP:
@@ -196,26 +208,42 @@ class ClaudeCodeRuntime(AbstractRuntime):
             if on_output:
                 output = self._run_streaming(cmd, agent, on_output, on_thinking, on_tool)
             else:
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=str(self.project_root),
-                    timeout=self._timeout,
-                )
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        cwd=str(self.project_root),
+                        timeout=self._timeout,
+                    )
+                except FileNotFoundError:
+                    raise RuntimeExecutionError(
+                        f"Claude Code CLI not found (agent={agent.id}): "
+                        "ensure 'claude' is installed and on PATH",
+                        error_category="cli_missing",
+                    )
+                except subprocess.TimeoutExpired:
+                    raise RuntimeExecutionError(
+                        f"Claude Code timed out after {self._timeout}s (agent={agent.id})",
+                        error_category="timeout",
+                    )
 
                 if result.returncode != 0:
+                    stderr = result.stderr.strip()
+                    error_category = _classify_error(stderr, result.returncode)
                     error_msg = (
-                        result.stderr.strip() or f"Exit code: {result.returncode}"
+                        stderr or f"process exited with code {result.returncode}"
                     )
                     logger.error(
-                        "[ClaudeCodeRuntime] Agent '%s' failed: %s",
+                        "[ClaudeCodeRuntime] Agent '%s' failed (%s): %s",
                         agent.id,
+                        error_category,
                         error_msg,
                     )
                     raise RuntimeExecutionError(
                         f"Claude Code execution failed (agent={agent.id}): {error_msg}",
                         partial_output=result.stdout.strip(),
+                        error_category=error_category,
                     )
 
                 output = result.stdout.strip()
@@ -457,8 +485,9 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         except subprocess.TimeoutExpired:
             raise RuntimeExecutionError(
-                f"Claude Code timed out (agent={agent.id})",
+                f"Claude Code timed out after {self._timeout}s (agent={agent.id})",
                 partial_output="".join(output_parts).strip(),
+                error_category="timeout",
             )
         finally:
             sel.close()
@@ -468,20 +497,24 @@ class ClaudeCodeRuntime(AbstractRuntime):
 
         if proc.returncode != 0:
             try:
-                error_msg = (
+                stderr = (
                     proc.stderr.read().strip() if proc.stderr
-                    else f"Exit code: {proc.returncode}"
+                    else ""
                 )
             except (ValueError, OSError):
-                error_msg = f"Exit code: {proc.returncode}"
+                stderr = ""
+            error_category = _classify_error(stderr, proc.returncode)
+            error_msg = stderr or f"process exited with code {proc.returncode}"
             logger.error(
-                "[ClaudeCodeRuntime] Agent '%s' failed: %s",
+                "[ClaudeCodeRuntime] Agent '%s' failed (%s): %s",
                 agent.id,
+                error_category,
                 error_msg,
             )
             raise RuntimeExecutionError(
                 f"Claude Code execution failed (agent={agent.id}): {error_msg}",
                 partial_output="".join(output_parts).strip(),
+                error_category=error_category,
             )
 
         return "".join(output_parts).strip()

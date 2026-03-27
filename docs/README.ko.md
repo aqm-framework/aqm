@@ -233,6 +233,10 @@ agents:
       mode: before                    # before | on_demand | both
       prompt: "어떤 기능이 필요한가요?"
     cli_flags: ["--verbose"]          # 런타임에 전달할 추가 플래그
+    retry:
+      max_retries: 2                  # 런타임 오류 시 최대 2회 재시도
+      backoff: 5                      # 재시도 간 5초 대기
+      fallback_context_strategy: last_only  # 재시도 시 컨텍스트 축소
 
   - id: design_session
     type: session
@@ -257,6 +261,7 @@ agents:
 | `gate` | `{ type: llm, prompt: "OK?", max_retries: 3 }` |
 | `mcp` | `[{ server: github }, { server: fs, args: ["/dir"] }]` |
 | `human_input` | `true` 또는 `{ mode: before, prompt: "질문?" }` |
+| `retry` | `{ max_retries: 2, backoff: 5, fallback_context_strategy: last_only }` |
 | `participants` | `[agent_a, agent_b, agent_c]` |
 | `chunks.initial` | `["설정", "구현", "테스트"]` |
 

@@ -166,6 +166,12 @@ def render_task_detail(
                 if s.reject_reason:
                     gate_info += f' <span style="font-size:12px;color:var(--text-dim);">({esc(s.reject_reason[:100])})</span>'
 
+            retry_info = ""
+            if s.retry_count > 0:
+                retry_info = f' · <span style="color:var(--warn);">Retried {s.retry_count}×</span>'
+                if s.retry_reason:
+                    retry_info += f' <span style="font-size:12px;color:var(--text-dim);">({esc(s.retry_reason[:120])})</span>'
+
             duration = fmt_duration(s.started_at, s.finished_at)
             duration_html = f'<span class="duration">{duration}</span>' if duration else ""
 
@@ -175,7 +181,7 @@ def render_task_detail(
                 f'<div class="timeline-item {status_class}">'
                 f'<div><strong>Stage {s.stage_number}</strong> · '
                 f'{agent_tip(s.agent_id)}'
-                f'{gate_info}{duration_html}</div>'
+                f'{gate_info}{retry_info}{duration_html}</div>'
                 f'<div style="font-size:12px;color:var(--text-dim);">'
                 f'{fmt_time(s.started_at)} → {fmt_time(s.finished_at)}</div>'
                 f'<div style="font-size:13px;margin-top:4px;color:var(--text-dim);">{output_preview}</div>'
