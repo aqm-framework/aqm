@@ -38,27 +38,99 @@ aqm init && aqm run "JWT 인증 추가" && aqm serve
 
 ## 예제
 
-### 코드 리뷰 파이프라인
+### aqm은 aqm으로 개발됩니다
+
+aqm 자체 개발에 aqm을 사용합니다. 기능 요청이 들어오면 영향도 분석 → 구현 → 실제 YAML 파일로 테스트 → 문서 업데이트 → 코드 리뷰까지 자동으로 진행됩니다.
+
+```
+[사용자 요청]
+     │
+     ▼
+[impact_analyzer] ── 영향 파일, 브레이킹 체인지 분석
+     │
+     ▼
+[implementer] ── feature 브랜치 생성, 코드 작성 (MCP: github)
+     │
+     ▼
+[tester] ── pytest + /tmp/에 실제 YAML 생성 + aqm validate
+     │ gate: llm
+     ├─ on_approve ──► [doc_updater] ── git diff → 변경된 섹션만 업데이트
+     └─ on_reject  ──► [implementer] ── 수정 후 재시도
+                            │
+                       [branch_manager] ── 커밋 + main 머지
+                            │
+                       [code_reviewer] ── 최종 게이트
+                            │ gate: llm
+                            └─ on_reject ──► [fixer] ──► [code_reviewer]
+```
 
 ```yaml
+# .aqm/pipelines/dev.yaml (요약)
 agents:
-  - id: developer
+  - id: impact_analyzer
     runtime: claude
-    system_prompt: "구현: {{ input }}"
-    handoffs: [{ to: reviewer }]
+    context_strategy: none             # 분석 단계는 이전 컨텍스트 불필요
+    system_prompt: "영향도 분석: {{ input }}"
+    handoffs: [{ to: implementer }]
 
-  - id: reviewer
-    runtime: gemini
-    gate: { type: llm, prompt: "프로덕션 준비?", max_retries: 3 }
-    handoffs:
-      - { to: qa, condition: on_approve }
-      - { to: developer, condition: on_reject }
+  - id: implementer
+    runtime: claude
+    context_strategy: last_only        # 영향도 보고서만 필요
+    mcp: [{ server: github }]
+    system_prompt: "feature 브랜치에서 구현. 커밋하지 말 것."
+    handoffs: [{ to: tester }]
 
-  - id: qa
+  - id: tester
     runtime: claude
     context_strategy: last_only
-    system_prompt: "테스트 작성: {{ input }}"
+    system_prompt: |
+      pytest 실행. /tmp/aqm_test_<feature>/에 실제 YAML 생성.
+      aqm validate 실행. 결과: PASS | FAIL 리포트.
+    gate:
+      type: llm
+      prompt: "Status가 PASS이고 모든 회귀 테스트 통과? APPROVE."
+      max_retries: 2
+    handoffs:
+      - { to: doc_updater, condition: on_approve }
+      - { to: implementer, condition: on_reject }
+
+  - id: doc_updater
+    runtime: claude
+    context_strategy: last_only
+    system_prompt: "git diff main 실행. 변경된 문서 섹션만 업데이트."
+    handoffs: [{ to: branch_manager }]
+
+  - id: branch_manager
+    runtime: claude
+    context_strategy: last_only
+    mcp: [{ server: github }]
+    system_prompt: "변경사항 커밋, feature 브랜치를 main에 머지."
+    handoffs: [{ to: code_reviewer }]
+
+  - id: code_reviewer
+    runtime: claude
+    context_strategy: last_only
+    system_prompt: "git diff HEAD~1과 pytest 실행. 정확성 검토."
+    gate:
+      type: llm
+      max_retries: 3
+    handoffs: [{ to: fixer, condition: on_reject }]
+
+  - id: fixer
+    runtime: claude
+    context_strategy: last_only
+    mcp: [{ server: github }]
+    system_prompt: "리뷰 문제 수정. main에 커밋. pytest 재실행."
+    handoffs: [{ to: code_reviewer }]
 ```
+
+```bash
+cd aqm
+aqm run "aqm validate에 --strict 플래그 추가" --pipeline dev
+# → 7개 에이전트, 완전 자동화: 분석 → 구현 → 테스트 → 문서 → 머지 → 리뷰
+```
+
+이 방식으로 추가된 기능: `aqm validate --strict`, 리소스 가용성 검사 — 테스트나 문서를 직접 작성하지 않고 모두 자동으로 완성.
 
 ### 아키텍처 세션
 

@@ -87,43 +87,99 @@ aqm serve                              # Web dashboard at localhost:8000
 
 ## Real-World Examples
 
-### Example 1: Code Review Pipeline
+### Example 1: aqm is built with aqm
 
-Every PR goes through planning, implementation, review, and testing — automatically.
+aqm's own development uses aqm. Every feature request goes through impact analysis, implementation, testing with real YAML files, doc updates, and code review — automatically.
+
+```
+[user request]
+     │
+     ▼
+[impact_analyzer] ── which files are affected? breaking changes?
+     │
+     ▼
+[implementer] ── creates feature branch, writes code (MCP: github)
+     │
+     ▼
+[tester] ── pytest + real YAML files in /tmp/ + aqm validate
+     │ gate: llm
+     ├─ on_approve ──► [doc_updater] ── git diff → update only changed sections
+     └─ on_reject  ──► [implementer] ── fix and retry
+                            │
+                       [branch_manager] ── commit + merge to main
+                            │
+                       [code_reviewer] ── final gate
+                            │ gate: llm
+                            └─ on_reject ──► [fixer] ──► [code_reviewer]
+```
 
 ```yaml
+# .aqm/pipelines/dev.yaml (abbreviated)
 agents:
-  - id: planner
-    runtime: gemini
-    system_prompt: "Break this into implementation steps: {{ input }}"
-    handoffs: [{ to: developer }]
-
-  - id: developer
+  - id: impact_analyzer
     runtime: claude
-    mcp: [{ server: github }]
-    system_prompt: "Implement the plan: {{ input }}"
-    handoffs: [{ to: reviewer }]
+    context_strategy: none             # no prior context needed for fresh analysis
+    system_prompt: "Analyze impact of: {{ input }}"
+    handoffs: [{ to: implementer }]
 
-  - id: reviewer
-    runtime: gemini                    # Different LLM = different perspective
-    system_prompt: "Review for bugs and security issues: {{ input }}"
+  - id: implementer
+    runtime: claude
+    context_strategy: last_only        # only needs impact report
+    mcp: [{ server: github }]
+    system_prompt: "Implement on a feature branch. Do not commit yet."
+    handoffs: [{ to: tester }]
+
+  - id: tester
+    runtime: claude
+    context_strategy: last_only
+    system_prompt: |
+      Run pytest. Create /tmp/aqm_test_<feature>/ with real YAML files.
+      Run aqm validate on each. Report: PASS | FAIL.
     gate:
       type: llm
-      prompt: "Is this code production-ready? Check OWASP Top 10."
-      max_retries: 3
+      prompt: "Status is PASS and all regression tests passed? APPROVE."
+      max_retries: 2
     handoffs:
-      - { to: qa, condition: on_approve }
-      - { to: developer, condition: on_reject }
+      - { to: doc_updater, condition: on_approve }
+      - { to: implementer, condition: on_reject }
 
-  - id: qa
+  - id: doc_updater
     runtime: claude
-    context_strategy: last_only        # Only needs reviewer's output → 55% fewer tokens
-    system_prompt: "Write tests for: {{ input }}"
+    context_strategy: last_only
+    system_prompt: "Run git diff main. Update only the docs sections that changed."
+    handoffs: [{ to: branch_manager }]
+
+  - id: branch_manager
+    runtime: claude
+    context_strategy: last_only
+    mcp: [{ server: github }]
+    system_prompt: "Commit changes, merge feature branch into main."
+    handoffs: [{ to: code_reviewer }]
+
+  - id: code_reviewer
+    runtime: claude
+    context_strategy: last_only
+    system_prompt: "Run git diff HEAD~1 and pytest. Review for correctness."
+    gate:
+      type: llm
+      max_retries: 3
+    handoffs: [{ to: fixer, condition: on_reject }]
+
+  - id: fixer
+    runtime: claude
+    context_strategy: last_only
+    mcp: [{ server: github }]
+    system_prompt: "Fix review issues. Commit on main. Re-run pytest."
+    handoffs: [{ to: code_reviewer }]
 ```
 
 ```bash
-aqm run "Add user preferences with database, API, and frontend"
+cd aqm
+aqm run "Add --strict flag to aqm validate" --pipeline dev
+# → 7 agents, fully automated: analyze → implement → test → document → merge → review
 ```
+
+Features added this way: `aqm validate --strict`, resource availability checks, retry strategy — all shipped without manually writing a single test or doc update.
 
 ### Example 2: Architecture Decision Session
 
