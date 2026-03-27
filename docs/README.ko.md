@@ -134,17 +134,20 @@ aqm run "aqm validate에 --strict 플래그 추가" --pipeline dev
 
 이 방식으로 추가된 기능: `aqm validate --strict`, 리소스 가용성 검사, 재시도 전략 — 테스트나 문서를 직접 작성하지 않고 모두 자동으로 완성.
 
-**실측 파이프라인 실행 시간** (7개 에이전트, code_reviewer만 Gemini, 나머지 Claude):
+**실측 파이프라인 실행 시간** (실제 실행 기준, code_reviewer만 Gemini, 나머지 Claude):
 
-| 단계 | 일반적인 소요 시간 |
-|---|---|
-| impact_analyzer | ~5분 |
-| implementer | ~4분 |
-| tester | ~4분 |
-| doc_updater | ~2분 |
-| code_reviewer | ~3분 |
-| branch_manager | ~2분 |
-| **전체 (정상 실행)** | **~23분** |
+| 단계 | T-4D9511 정상 실행 | T-8A833D 재시작 포함 |
+|---|---|---|
+| impact_analyzer | — ¹ | — ¹ |
+| implementer | 12분 | 6분 |
+| tester | 4분 | 5분 |
+| doc_updater | 1.5분 | 13.5분 ² |
+| branch_manager | 1분 | 1분 |
+| code_reviewer | 5분 | 1분 |
+| **전체 (2–6단계 합계)** | **23.5분** | **25.8분** |
+
+¹ impact_analyzer 시작 시간 미기록 (약 5분 추가 소요)
+² doc_updater 1회 실패 후 `aqm restart --from-stage 4`로 복구
 
 ### 아키텍처 세션
 
